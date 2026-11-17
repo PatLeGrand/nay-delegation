@@ -62,7 +62,7 @@ cat brief.md | node bin/nay.js run hydrogen - --read-only --cwd /chemin/du/proje
 
 L'API ESM est `runAgent(name, prompt, { mode, cwd, feature, role, onEvent })` dans
 `src/runAgent.js`. Le mode vaut `write` par défaut, ou `read` pour la lecture seule.
-Le résultat contient le statut `ok`, `error` ou `timeout`, le texte, les jetons et
+Le résultat contient `callId`, `sessionId` (null si inconnu), le statut `ok`, `error` ou `timeout`, le texte, les jetons et
 la durée. Les échecs des agents sont renvoyés avec `error` ; une erreur d'écriture
 du journal rejette la promesse pour éviter une consommation silencieusement perdue.
 
@@ -91,6 +91,52 @@ option de contournement des permissions n'est utilisée.
 
 Les tests utilisent des processus et des flux simulés ; ils ne lancent aucun
 agent et ne consomment aucun jeton.
+
+## Reprendre une session
+
+```bash
+node bin/nay.js resume <callId> retours.md
+cat retours.md | node bin/nay.js resume <callId> - --cwd /chemin/du/projet
+```
+
+`nay run` et `nay resume` affichent le `callId` de l'appel et l'identifiant de
+session du fournisseur (ou « inconnue »). La reprise retrouve la dernière entrée
+avec ce `callId` dans `usage.jsonl` et conserve l'agent, le mode, la fonctionnalité,
+le rôle et le dossier absolu ; `--cwd` remplace seulement ce dossier.
+Un appel inconnu ou sans session ne peut pas être repris. Chaque reprise crée
+un nouvel appel, relié au précédent par `resumedFrom`, dans la même conversation.
+Les anciens journaux sans identifiant de session ne permettent pas de reprise.
+
+L'API ESM `resumeCall(callId, prompt, options)` est dans `src/resume.js`.
+`runAgent` accepte aussi `resume` (session du fournisseur), `resumedFrom` et un
+`callId` facultatif. Le journal conserve `callId`, `sessionId`, `resumedFrom`
+(null hors reprise) et `cwd` (absolu).
+
+Pour les CLI listés dans `config/engine.json` → `cumulativeUsageOnResume`
+(`codex` et `agy`), le résultat et le journal conservent `usageCumulative`, la
+consommation brute du CLI dans le format commun des jetons. `usage` représente
+la consommation propre à l'appel : lors d'une reprise, le moteur soustrait le
+`usageCumulative` du dernier enregistrement de l'appel repris (ou son `usage`
+pour un ancien journal), champ par champ, avec un minimum de zéro. Un appel
+initial conserve la même consommation dans les deux champs. Les reprises
+successives utilisent ainsi le cumul brut plutôt que le delta précédent.
+Les appels directs à `runAgent` doivent fournir `resume` et `resumedFrom` pour
+retrouver cette base dans le journal désigné par `journalRoot` et `usagePath` ;
+sans parent retrouvé, la base vaut zéro. Les anciennes lignes restent inchangées.
+Claude est exclu de la liste : son `result.usage` est supposé propre à l'appel,
+ce qui reste à vérifier sur des reprises réelles.
+
+`call_end.usage` contient la même consommation corrigée et `usageCumulative`
+est également présent sur cet événement pour les CLI configurés. Les événements
+`usage` intermédiaires restent les mesures brutes par tour ou étape ; ils ne
+sont pas corrigés et ne doivent pas être additionnés au résultat final.
+
+Dans l'interface, ouvrir un appel terminé avec une session affiche
+« Répondre à l’agent ». Envoyer un message ouvre le détail du nouvel appel.
+Le serveur refuse une reprise si l'appel n'a pas de `call_end` ou si la même
+session est déjà reprise dans ce serveur. Ce verrou est local au processus ;
+il ne coordonne pas les reprises lancées par la CLI ou un autre serveur.
+La session doit toujours exister dans les données locales de la CLI fournisseur.
 
 ## Quotas
 
@@ -125,6 +171,7 @@ node bin/nay.js ui
 la limite des requêtes et les intervalles SSE. La page provisoire sera remplacée
 par la branche `feature/page-web` ; le serveur suit [le contrat API](docs/api.md).
 Les journaux restent ceux du dépôt Nay central depuis un worktree ; les fiches,
-la page et la délégation viennent du worktree actif. Seul l'enregistrement de
-la délégation modifie un fichier, par remplacement atomique. Les quotas réutilisent
+la page et la délégation viennent du worktree actif. L'enregistrement de
+la délégation utilise un remplacement atomique ; une reprise lance un agent
+avec le mode et le dossier de l'appel d'origine. Les quotas réutilisent
 le cache de `readQuotas()` et son relevé `agy /usage`.

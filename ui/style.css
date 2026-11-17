@@ -178,3 +178,7 @@ details summary { cursor: pointer; color: var(--muted); }
 }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+.agent-dialog .agent-reply { text-align: left; }
+.agent-reply label { display: block; margin-bottom: 8px; font-weight: 600; }
+.agent-reply textarea { display: block; width: 100%; margin-bottom: 8px; padding: 8px; resize: vertical; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }

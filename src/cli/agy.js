@@ -1,3 +1,4 @@
+import { isSessionId } from '../session.js';
 import { readConfig } from '../config.js';
 import { finalRecord, toolDescriptor, outputText } from './events.js';
 import { failResult } from './usage.js';
@@ -6,10 +7,10 @@ export function requiresBriefFile(prompt, maxBytes) {
   return prompt.startsWith('-') || Buffer.byteLength(prompt, 'utf8') > maxBytes;
 }
 
-export function buildArgs({ model, effort, prompt, timeoutMin, mode = 'write' }) {
+export function buildArgs({ model, effort, prompt, timeoutMin, mode = 'write', resume }) {
   return ['-p', prompt, '--model', model.replaceAll('{effort}', effort),
     '--output-format', 'stream-json', '--print-timeout', `${timeoutMin}m`,
-    '--mode', mode === 'write' ? 'accept-edits' : 'plan'];
+    '--mode', mode === 'write' ? 'accept-edits' : 'plan', ...(resume ? ['--conversation', resume] : [])];
 }
 
 export function parseResult(stdout) {
@@ -55,4 +56,9 @@ export function toEvents(rawEvent, config = readConfig('events')) {
     events.push({ kind: 'usage', usage: result.usage });
   }
   return events;
+}
+
+export function sessionIdFrom(event) {
+  const id = event?.event === 'init' ? event.conversation_id : undefined;
+  return isSessionId(id) ? id : undefined;
 }

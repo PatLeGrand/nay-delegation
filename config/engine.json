@@ -1,4 +1,5 @@
 {
+  "cumulativeUsageOnResume": ["codex", "agy"],
   "usageLogPath": ".nay/state/usage.jsonl",
   "codexBin": "/usr/lib/chatgpt/resources/codex",
   "agyBin": "agy",

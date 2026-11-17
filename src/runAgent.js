@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import childProcess from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -5,8 +6,8 @@ import { performance } from 'node:perf_hooks';
 import { createEventSink } from './eventLog.js';
 import { writeClaudeQuota } from './quota/claude.js';
 import { getAgent, loadEngineConfig, loadEventConfig, repositoryRoot } from './config.js';
-import { appendUsage } from './usageLog.js';
-import { emptyUsage } from './cli/usage.js';
+import { appendUsage, readUsage } from './usageLog.js';
+import { emptyUsage, subtractUsage } from './cli/usage.js';
 import * as codex from './cli/codex.js';
 import * as agy from './cli/agy.js';
 import * as claude from './cli/claude.js';
@@ -112,19 +113,22 @@ function configuredModel(name) {
   try { return getAgent(name).model; } catch { return null; }
 }
 
-function callEvents(name, { feature, role, mode, onEvent, journalRoot }) {
+function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom, onSession }) {
   let config;
   try { config = loadEventConfig(); } catch (error) {
     process.stderr.write(`Journal d’événements désactivé : ${error.message}\n`);
-    return { sink: { emit() {} }, onLine() {}, flush: async () => {} };
+    return { sink: { emit() {} }, onLine(line, agent) {
+      try { onSession(adapters[agent.cli].sessionIdFrom(JSON.parse(line))); } catch {}
+    }, flush: async () => {} };
   }
-  const sink = createEventSink({ agent: name, model: configuredModel(name),
+  const sink = createEventSink({ callId, agent: name, model: configuredModel(name),
     feature: feature ?? null, role: role ?? null }, resolve(journalRoot, config.directory), config, onEvent);
-  sink.emit({ kind: 'call_start', mode });
+  sink.emit({ kind: 'call_start', mode, resumedFrom });
   let quotaPending = Promise.resolve();
   function onLine(line, agent) {
     try {
       const raw = JSON.parse(line);
+      onSession(adapters[agent.cli].sessionIdFrom(raw));
       for (const event of adapters[agent.cli].toEvents(raw, config)) sink.emit(event);
       if (agent.cli === 'claude' && raw?.type === 'rate_limit_event') {
         quotaPending = quotaPending.then(() => writeClaudeQuota(raw, undefined, journalRoot)).catch(() => {});
@@ -134,20 +138,30 @@ function callEvents(name, { feature, role, mode, onEvent, journalRoot }) {
   return { sink, onLine, flush: () => Promise.all([sink.flush(), quotaPending]) };
 }
 
-export async function runAgent(name, prompt, { mode = 'write', cwd = process.cwd(), feature, role, onEvent, journalRoot = repositoryRoot() } = {}) {
+export async function runAgent(name, prompt, { mode = 'write', cwd = process.cwd(), feature, role, onEvent, journalRoot = repositoryRoot(),
+  resume, resumedFrom = null, callId = randomUUID(), usagePath } = {}) {
   const started = performance.now();
   const engine = loadEngineConfig();
   const workDir = resolve(cwd);
-  const result = { agent: name, model: null, effort: null, mode, status: 'error',
+  const result = { callId, sessionId: null, agent: name, model: null, effort: null, mode, status: 'error',
     text: '', usage: emptyUsage(), durationMs: 0 };
-  const events = callEvents(name, { feature, role, mode, onEvent, journalRoot });
+  const events = callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom,
+    onSession(id) { if (id) result.sessionId = id; } });
   let call;
+  let cumulativeUsage = false;
+  let usageBaseline = emptyUsage();
   try {
     const agent = getAgent(name);
     Object.assign(result, { model: agent.model, effort: agent.effort });
+    cumulativeUsage = engine.cumulativeUsageOnResume?.includes(agent.cli) ?? false;
+    if (cumulativeUsage && resume && resumedFrom) {
+      const parent = (await readUsage(resolve(journalRoot, usagePath ?? engine.usageLogPath)))
+        .findLast((entry) => entry.callId === resumedFrom);
+      usageBaseline = parent?.usageCumulative ?? parent?.usage ?? emptyUsage();
+    }
     if (!['write', 'read'].includes(mode)) throw new Error(`Mode inconnu : ${mode}`);
     if (typeof prompt !== 'string') throw new Error('Le prompt doit être une chaîne de caractères');
-    call = await prepareCall(agent, prompt, { mode, cwd: workDir }, engine);
+    call = await prepareCall(agent, prompt, { mode, cwd: workDir, resume }, engine);
     const execution = await execute(engine[`${agent.cli}Bin`], call.args,
       { cwd: workDir, input: call.input, timeoutMin: agent.timeoutMin, onLine: (line) => events.onLine(line, agent) });
     result.status = execution.timedOut ? 'timeout' : 'error';
@@ -175,13 +189,18 @@ export async function runAgent(name, prompt, { mode = 'write', cwd = process.cwd
         result.error = `${result.error ? `${result.error}; ` : ''}Nettoyage : ${error.message}`;
       }
     }
+    if (cumulativeUsage) {
+      result.usageCumulative = { ...result.usage };
+      result.usage = subtractUsage(result.usageCumulative, usageBaseline);
+    }
     result.durationMs = Math.round(performance.now() - started);
-    events.sink.emit({ kind: 'call_end', status: result.status, usage: result.usage, durationMs: result.durationMs,
+    events.sink.emit({ kind: 'call_end', sessionId: result.sessionId, status: result.status, usage: result.usage, durationMs: result.durationMs,
+      ...(result.usageCumulative ? { usageCumulative: result.usageCumulative } : {}),
       ...(result.error ? { error: result.error } : {}) });
     await events.flush();
     // Le journal conserve les métadonnées, sans dupliquer les réponses des agents.
     const { text, ...entry } = result;
-    await appendUsage({ ...entry, feature, role }, resolve(journalRoot, engine.usageLogPath));
+    await appendUsage({ ...entry, feature, role, resumedFrom, cwd: workDir }, resolve(journalRoot, usagePath ?? engine.usageLogPath));
   }
   return result;
 }

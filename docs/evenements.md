@@ -16,7 +16,7 @@ et les alertes / l'interface (`feature/alertes`, `feature/interface`, qui les li
 |---|---|---|
 | `v` | 1 | version du format |
 | `ts` | ISO UTC | moment de l'événement |
-| `callId` | chaîne | identifiant unique d'un appel d'agent (`nay run`) |
+| `callId` | chaîne | identifiant unique d'un appel d'agent (`nay run` ou `nay resume`) |
 | `agent` | chaîne | nom de l'agent (`sol`, `hydrogen`…) |
 | `model` | chaîne | modèle résolu |
 | `feature` | chaîne ou null | fonctionnalité concernée |
@@ -25,12 +25,12 @@ et les alertes / l'interface (`feature/alertes`, `feature/interface`, qui les li
 
 ## Types (`kind`)
 
-- `call_start` : début de l'appel. Champ `mode` (`write` ou `read`).
+- `call_start` : début de l'appel. Champs `mode` (`write` ou `read`) et `resumedFrom` (callId repris, ou null).
 - `tool_start` : l'agent lance un outil. Champ `tool`.
 - `tool_end` : l'outil a fini. Champs `tool`, `ok` (booléen), `exitCode` (si commande), `durationMs` (si connu), `output` (tronqué).
 - `message` : texte de l'agent. Champ `text` (tronqué).
-- `usage` : consommation intermédiaire. Champ `usage` `{ input, cachedInput, output, thinking, total }`.
-- `call_end` : fin de l'appel. Champs `status` (`ok`, `error`, `timeout`), `usage`, `durationMs`, `error` (si échec).
+- `usage` : mesure brute intermédiaire du CLI, par tour ou étape (sans soustraction de l’historique lors d’une reprise). Champ `usage` `{ input, cachedInput, output, thinking, total }`.
+- `call_end` : fin de l'appel. Champs `status` (`ok`, `error`, `timeout`), `usage`, `durationMs`, `sessionId` (identifiant fournisseur, ou null si inconnu), `error` (si échec).
 
 ## Outil (`tool`)
 
@@ -42,3 +42,21 @@ et les alertes / l'interface (`feature/alertes`, `feature/interface`, qui les li
 - `target` : la commande lancée, le chemin lu ou modifié, ou le motif cherché.
 
 La correspondance entre noms bruts et `kind` est dans la config, pas dans le code.
+
+Le `callId` est identique dans le résultat de `runAgent`, les événements et
+`usage.jsonl`. Une reprise obtient un nouveau `callId` ; `resumedFrom` relie son
+`call_start` à l'appel précédent. Les anciens événements peuvent ne pas avoir
+`resumedFrom` ou `sessionId`.
+
+Pour les CLI de `config/engine.json` → `cumulativeUsageOnResume` (Codex et agy),
+`call_end` contient aussi `usageCumulative`, la consommation brute finale dans le
+même format que `usage`. `call_end.usage` représente la consommation propre à
+l'appel : lors d'une reprise, chaque champ vaut le cumul brut moins celui du
+dernier enregistrement de l'appel repris dans usage.jsonl, avec une borne à zéro.
+La base est `usageCumulative`, ou `usage` pour une entrée ancienne ; sans base,
+elle vaut zéro. Pour un appel initial, `usage` et `usageCumulative` sont identiques.
+Claude conserve son usage tel quel et n'a pas de champ `usageCumulative`.
+
+Les événements intermédiaires `usage` restent inchangés : les étapes agy et les
+tours Codex n'ont pas tous la même portée que le cumul final de la conversation.
+Ils sont provisoires ; `call_end.usage` fait foi pour la consommation de l'appel.

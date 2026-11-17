@@ -67,6 +67,27 @@ Tous les événements d'un appel (format de `docs/evenements.md`), dans l'ordre 
 ```
 404 si l'appel est inconnu.
 
+### `POST /api/calls/:callId/resume`
+
+Corps JSON : `{ "message": "Retours du relecteur…" }`. Exige un message texte
+non vide, `Content-Type: application/json` et `Origin: http://<Host>` comme
+`PUT /api/delegation`. La vérification de l'hôte et la limite `maxBodyBytes`
+s'appliquent aussi (403 ou 413). JSON invalide ou message vide : 400.
+
+- 404 : appel inconnu dans `usage.jsonl` ou sans session.
+- 409 : absence de `call_end` dans les événements de l'appel, ou reprise de la
+  même session déjà en cours dans ce serveur.
+- 202 : `{ "callId": "<nouvel appel>", "resumedFrom": "<appel repris>" }`.
+
+La reprise démarre en arrière-plan avec l'agent, le mode, le rôle, la fonctionnalité
+et le dossier absolu du dernier enregistrement de l'appel. Les événements du
+nouvel appel arrivent par le SSE existant ; ses échecs ne ferment pas le serveur.
+Le verrou par session est en mémoire, limité à cette instance du serveur.
+Le détail du nouvel appel peut brièvement renvoyer 404 avant l'écriture de son
+premier événement. `createServer` accepte `resumer(callId, message, options)`
+pour injecter une reprise simulée ; `options.callId` identifie le nouvel appel,
+`options.journalRoot` et `options.usagePath` désignent ses journaux.
+
 ### `GET /api/features`
 
 Fiches de `docs/features/*.md` analysées :

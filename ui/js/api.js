@@ -34,3 +34,8 @@ export const putJson = (path, payload) =>
   });
 
 export const fetchCall = (callId) => getJson(API.call(callId));
+
+export const resumeCall = (callId, message) => request(`${API.call(callId)}/resume`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message }),
+});
