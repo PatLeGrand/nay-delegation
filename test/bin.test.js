@@ -15,7 +15,7 @@ function streams(text = '') {
 }
 
 const response = { agent: 'sonnet', model: 'sonnet', effort: 'medium', status: 'ok',
-  text: 'réponse', durationMs: 1234, usage: { input: 2, output: 1 } };
+  callId: 'appel', sessionId: 'session', text: 'réponse', durationMs: 1234, usage: { input: 2, output: 1 } };
 
 test('La CLI transmet stdin et les options, puis affiche l’en-tête et le texte', async () => {
   const captured = streams('bonjour');
@@ -28,7 +28,7 @@ test('La CLI transmet stdin et les options, puis affiche l’en-tête et le text
       return response;
     } });
   assert.equal(code, 0);
-  assert.equal(captured.stdout, '[sonnet · sonnet/medium · 1.2s · in 2 / out 1]\nréponse\n');
+  assert.equal(captured.stdout, '[sonnet · sonnet/medium · 1.2s · in 2 / out 1]\ncallId : appel\nsession : session\nréponse\n');
   assert.equal(captured.stderr, '');
 });
 
@@ -189,4 +189,43 @@ test('choose valide rôle et auteur avant de lire les quotas', async () => {
   const code = await runCommand(['choose', 'relecteur'], { ...captured,
     quotasReader: () => assert.fail('lecture des quotas interdite') });
   assert.equal(code, 1);
+});
+
+test('resume retrouve le dernier appel, restaure ses paramètres et accepte --cwd', async (t) => {
+  const { resumeCall } = await import('../src/resume.js');
+  const { appendUsage } = await import('../src/usageLog.js');
+  const root = await mkdtemp(join(tmpdir(), 'nay-resume-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, '.nay/state/usage.jsonl');
+  await appendUsage({ callId: 'parent', sessionId: 'ancienne', agent: 'sol' }, path);
+  await appendUsage({ callId: 'parent', sessionId: 'session', agent: 'sonnet', mode: 'read',
+    feature: 'reprise', role: 'review', cwd: '/original' }, path);
+  await appendUsage({ callId: 'sans-session' }, path);
+  const resumer = (id, prompt, options) => resumeCall(id, prompt, { ...options, journalRoot: root,
+    execute: async (agent, text, settings) => {
+      assert.equal(agent, 'sonnet');
+      assert.equal(text, 'suite');
+      assert.deepEqual(settings, { mode: 'read', feature: 'reprise', role: 'review',
+        cwd: options.cwd ?? '/original', resume: 'session', resumedFrom: 'parent', journalRoot: root });
+      return response;
+    } });
+  for (const extra of [[], ['--cwd', '/autre']]) {
+    const captured = streams('suite');
+    assert.equal(await runCommand(['resume', 'parent', '-', ...extra], { ...captured, resumer }), 0);
+    assert.match(captured.stdout, /callId : appel\nsession : session/);
+  }
+  for (const [id, message] of [['absent', /Appel inconnu/], ['sans-session', /sans session/]]) {
+    const captured = streams('suite');
+    assert.equal(await runCommand(['resume', id, '-'], { ...captured, resumer }), 1);
+    assert.match(captured.stderr, message);
+  }
+});
+
+test('resume conserve le code de sortie et le message des échecs agent', async () => {
+  const captured = streams('suite');
+  assert.equal(await runCommand(['resume', 'parent', '-'], { ...captured,
+    resumer: async () => ({ ...response, status: 'timeout', error: 'Délai maximal dépassé' }),
+  }), 1);
+  assert.match(captured.stdout, /callId : appel/);
+  assert.match(captured.stderr, /Délai maximal dépassé/);
 });

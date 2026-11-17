@@ -1,8 +1,12 @@
+import { isSessionId } from '../session.js';
 import { readConfig } from '../config.js';
 import { toolDescriptor } from './events.js';
 import { emptyUsage, failResult } from './usage.js';
 
-export function buildArgs({ model, effort, mode = 'write', cwd, outputFile }) {
+export function buildArgs({ model, effort, mode = 'write', cwd, outputFile, resume }) {
+  if (resume) return ['exec', 'resume', '--json', '--skip-git-repo-check', '-m', model,
+    '-c', `model_reasoning_effort=${effort}`, '-c',
+    `sandbox_mode="${mode === 'write' ? 'workspace-write' : 'read-only'}"`, '-o', outputFile, '--', resume, '-'];
   return ['exec', '--json', '--skip-git-repo-check', '-C', cwd, '-m', model,
     '-c', `model_reasoning_effort=${effort}`, '-s',
     mode === 'write' ? 'workspace-write' : 'read-only', '-o', outputFile, '-'];
@@ -51,4 +55,9 @@ export function toEvents(rawEvent, config = readConfig('events')) {
   if (rawEvent.type === 'item.started') return [{ kind: 'tool_start', tool }];
   return [{ kind: 'tool_end', tool, ok: item.status !== 'failed' && (item.exit_code == null || item.exit_code === 0),
     ...(item.exit_code != null ? { exitCode: item.exit_code } : {}), output: item.aggregated_output ?? '' }];
+}
+
+export function sessionIdFrom(event) {
+  const id = event?.type === 'thread.started' ? event.thread_id : undefined;
+  return isSessionId(id) ? id : undefined;
 }

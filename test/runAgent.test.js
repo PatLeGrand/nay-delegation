@@ -7,7 +7,8 @@ import { mkdtemp, readdir, readFile, rm, writeFile, cp } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runAgent as executeAgent } from '../src/runAgent.js';
-import { readUsage } from '../src/usageLog.js';
+import { appendUsage, readUsage } from '../src/usageLog.js';
+import { findResumableCall, resumeCall } from '../src/resume.js';
 
 function runAgent(name, prompt, options) {
   return executeAgent(name, prompt, { journalRoot: options.cwd, ...options });
@@ -43,6 +44,12 @@ test('Codex sans turn.completed est journalisé comme un échec', async (t) => {
   });
   const result = await runAgent('sol', 'brief', { cwd });
   assert.equal(result.status, 'error');
+  assert.equal(result.sessionId, null);
+  assert.ok(result.callId);
+  const [entry] = await readUsage(join(cwd, '.nay/state/usage.jsonl'));
+  assert.equal(entry.callId, result.callId);
+  assert.equal(entry.sessionId, null);
+  assert.equal(entry.resumedFrom, null);
   assert.match(result.error, /aucun événement turn.completed/);
   assert.equal(result.text, 'partiel');
   assert.equal((await readUsage(join(cwd, '.nay/state/usage.jsonl')))[0].status, 'error');
@@ -112,11 +119,21 @@ test('Codex reçoit stdin, lit -o et journalise les métadonnées', async (t) =>
     await writeFile(args[args.indexOf('-o') + 1], 'réponse');
     finish(child, '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}\n');
   });
-  const result = await runAgent('sol', 'brief', { cwd, mode: 'read', feature: 'appel', role: 'dev' });
+  const events = [];
+  const result = await runAgent('sol', 'brief', { cwd, mode: 'read', feature: 'appel', role: 'dev',
+    onEvent: (event) => events.push(event) });
+  assert.match(result.callId, /^[0-9a-f-]{36}$/);
+  assert.ok(events.length >= 2);
+  assert.ok(events.every((event) => event.callId === result.callId));
+  const eventDirectory = join(cwd, '.nay/state/events');
+  const loggedEvents = (await Promise.all((await readdir(eventDirectory)).map((file) =>
+    readFile(join(eventDirectory, file), 'utf8')))).join('').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(loggedEvents, events);
   assert.equal(result.status, 'ok');
   assert.equal(result.text, 'réponse');
   assert.equal(result.usage.total, 15);
   const [entry] = await readUsage(join(cwd, '.nay/state/usage.jsonl'));
+  assert.equal(entry.callId, result.callId);
   assert.equal(entry.feature, 'appel');
   assert.equal(entry.role, 'dev');
   assert.equal(entry.status, 'ok');
@@ -377,4 +394,170 @@ test('Les secrets sont masqués pour le callback et le journal, sans modifier re
   assert.equal((message.text.match(/\[masqué\]/g) ?? []).length, secrets.length);
   assert.equal(received.find((event) => event.kind === 'tool_start').tool.target, message.text);
   assert.equal(received.find((event) => event.kind === 'tool_end').output, message.text);
+});
+
+for (const [provider, name] of [['codex', 'sol'], ['claude', 'sonnet'], ['agy', 'hydrogen']]) {
+  test(`${provider} capture la session du flux et journalise la filiation`, async (t) => {
+    const fixture = await readFile(new URL(`fixtures/${provider}-stream.jsonl`, import.meta.url), 'utf8');
+    const stdout = provider === 'claude'
+      ? JSON.stringify({ type: 'system', subtype: 'init', session_id: 'claude-session' }) + '\n' + fixture : fixture;
+    const first = JSON.parse(stdout.split('\n')[0]);
+    const session = first.thread_id ?? first.session_id ?? first.conversation_id;
+    const cwd = await setup(t, async ({ child, args }) => {
+      if (provider === 'codex') await writeFile(args[args.indexOf('-o') + 1], 'ok');
+      finish(child, stdout);
+    });
+    const events = [];
+    const result = await runAgent(name, 'suite', { cwd, resume: session, resumedFrom: 'parent',
+      callId: 'nouveau', onEvent: (event) => events.push(event) });
+    assert.equal(result.status, 'ok');
+    assert.equal(result.callId, 'nouveau');
+    assert.equal(result.sessionId, session);
+    assert.ok(events.every((event) => event.callId === result.callId));
+    assert.equal(events[0].resumedFrom, 'parent');
+    assert.equal(events.at(-1).sessionId, session);
+    const [entry] = await readUsage(join(cwd, '.nay/state/usage.jsonl'));
+    assert.equal(entry.callId, result.callId);
+    assert.equal(entry.sessionId, session);
+    assert.equal(entry.resumedFrom, 'parent');
+    assert.equal(entry.cwd, cwd);
+  });
+}
+
+for (const absolute of [false, true]) {
+  test(`resumeCall lit et écrit le même usagePath ${absolute ? 'absolu' : 'relatif'}`, async (t) => {
+    const cwd = await setup(t, async ({ child, args }) => {
+      assert.deepEqual(args.slice(-3), ['--', 'session', '-']);
+      await writeFile(args[args.indexOf('-o') + 1], 'suite réussie');
+      finish(child, '{"type":"turn.completed","usage":{"input_tokens":2}}');
+    });
+    const usagePath = absolute ? join(cwd, 'custom/usage.jsonl') : 'custom/usage.jsonl';
+    const path = absolute ? usagePath : join(cwd, usagePath);
+    const parent = { callId: 'parent', sessionId: 'session', agent: 'sol', mode: 'read', cwd };
+    await appendUsage(parent, path);
+    const result = await resumeCall('parent', 'suite', { journalRoot: cwd, usagePath });
+    assert.equal(result.status, 'ok');
+    const entries = await readUsage(path);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].callId, 'parent');
+    assert.equal(entries[1].callId, result.callId);
+    assert.equal(entries[1].resumedFrom, 'parent');
+    await assert.rejects(readFile(join(cwd, '.nay/state/usage.jsonl')), { code: 'ENOENT' });
+  });
+}
+
+test('findResumableCall refuse les sessions invalides du dernier enregistrement', async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'nay-invalid-session-'));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const path = join(cwd, '.nay/state/usage.jsonl');
+  await appendUsage({ callId: 'parent', sessionId: 'valide' }, path);
+  for (const sessionId of [null, 123, '', '--help', '-session', 'a b', 'a/b', 'é', 'a\n', 'a'.repeat(201)]) {
+    await appendUsage({ callId: 'parent', sessionId }, path);
+    await assert.rejects(findResumableCall('parent', { journalRoot: cwd }),
+      (error) => error.status === 404 && /sans session/.test(error.message));
+  }
+});
+
+function cumulativeStream(provider, usage) {
+  if (provider === 'codex') return [
+    { type: 'thread.started', thread_id: 'session' },
+    { type: 'turn.completed', usage: { input_tokens: usage.input, cached_input_tokens: usage.cachedInput,
+      output_tokens: usage.output, reasoning_output_tokens: usage.thinking } },
+  ].map(JSON.stringify).join('\n');
+  return [
+    { event: 'init', conversation_id: 'session' },
+    { event: 'result', result: { status: 'SUCCESS', response: 'ok', usage: {
+      input_tokens: usage.input, cache_read_tokens: usage.cachedInput, output_tokens: usage.output,
+      thinking_tokens: usage.thinking, total_tokens: usage.total,
+    } } },
+  ].map(JSON.stringify).join('\n');
+}
+
+for (const [provider, name, initialInput, initialOutput, resumedInput, resumedOutput] of [
+  ['codex', 'sol', 554472, 4109, 617770, 4155],
+  ['agy', 'hydrogen', 57118, 7741, 61565, 11443],
+]) {
+  for (const scenario of ['cumul préféré', 'ancien journal', 'borne à zéro', 'échec CLI']) {
+    test(`${provider} : consommation de reprise, ${scenario}`, async (t) => {
+      const raw = { input: resumedInput, cachedInput: 70, output: resumedOutput, thinking: 4,
+        total: resumedInput + resumedOutput + (provider === 'agy' ? 4 : 0) };
+      const baseline = scenario === 'borne à zéro'
+        ? Object.fromEntries(Object.entries(raw).map(([field, value]) => [field, value + 1]))
+        : { input: initialInput, cachedInput: 90, output: initialOutput, thinking: 1,
+          total: initialInput + initialOutput + (provider === 'agy' ? 1 : 0) };
+      const cwd = await setup(t, async ({ child, args }) => {
+        if (provider === 'codex') await writeFile(args[args.indexOf('-o') + 1], 'ok');
+        finish(child, cumulativeStream(provider, raw), scenario === 'échec CLI' ? 1 : 0);
+      });
+      const path = join(cwd, 'custom/usage.jsonl');
+      await appendUsage({ callId: 'parent', sessionId: 'session', agent: name, mode: 'read', cwd,
+        usage: scenario === 'ancien journal' ? baseline : { input: 1, output: 1, total: 2 },
+        ...(scenario === 'ancien journal' ? {} : { usageCumulative: baseline }) }, path);
+      const events = [];
+      // L'API directe du moteur doit aussi retrouver le parent dans le bon journal.
+      const result = await runAgent(name, 'suite', { cwd, resume: 'session', resumedFrom: 'parent',
+        usagePath: path, onEvent: (event) => events.push(event) });
+      const expected = scenario === 'borne à zéro'
+        ? { input: 0, cachedInput: 0, output: 0, thinking: 0, total: 0 }
+        : { input: resumedInput - initialInput, cachedInput: 0, output: resumedOutput - initialOutput,
+          thinking: 3, total: raw.total - baseline.total };
+      assert.equal(result.status, scenario === 'échec CLI' ? 'error' : 'ok');
+      assert.deepEqual(result.usage, expected);
+      assert.deepEqual(result.usageCumulative, raw);
+      assert.deepEqual(events.at(-1).usage, expected);
+      assert.deepEqual(events.at(-1).usageCumulative, raw);
+      const [parent, entry] = await readUsage(path);
+      assert.equal(parent.callId, 'parent');
+      assert.deepEqual(entry.usage, expected);
+      assert.deepEqual(entry.usageCumulative, raw);
+    });
+  }
+
+  test(`${provider} : appel initial puis deux reprises sans recompter l'historique`, async (t) => {
+    const snapshots = [
+      { input: 100, cachedInput: 20, output: 10, thinking: 2, total: provider === 'agy' ? 112 : 110 },
+      { input: 160, cachedInput: 30, output: 15, thinking: 3, total: provider === 'agy' ? 178 : 175 },
+      { input: 190, cachedInput: 40, output: 18, thinking: 4, total: provider === 'agy' ? 212 : 208 },
+    ];
+    let index = 0;
+    const cwd = await setup(t, async ({ child, args }) => {
+      if (provider === 'codex') await writeFile(args[args.indexOf('-o') + 1], 'ok');
+      finish(child, cumulativeStream(provider, snapshots[index++]));
+    });
+    const usagePath = join(cwd, 'custom/usage.jsonl');
+    const first = await runAgent(name, 'initial', { cwd, usagePath });
+    const second = await resumeCall(first.callId, 'suite', { journalRoot: cwd, usagePath });
+    const third = await resumeCall(second.callId, 'suite', { journalRoot: cwd, usagePath });
+    for (const result of [first, second, third]) assert.equal(result.status, 'ok');
+    assert.deepEqual(first.usage, snapshots[0]);
+    assert.deepEqual(first.usageCumulative, snapshots[0]);
+    assert.equal(second.usage.input, 60);
+    assert.equal(third.usage.input, 30);
+    const entries = await readUsage(usagePath);
+    for (const field of Object.keys(snapshots[0])) {
+      assert.equal(entries.reduce((sum, entry) => sum + entry.usage[field], 0), snapshots[2][field]);
+    }
+    assert.deepEqual(entries.map((entry) => entry.usageCumulative), snapshots);
+  });
+}
+
+test('Claude : la reprise conserve sa consommation propre sans champ cumulatif', async (t) => {
+  const cwd = await setup(t, ({ child }) => finish(child, JSON.stringify({
+    type: 'result', session_id: 'session', result: 'ok',
+    usage: { input_tokens: 5, cache_read_input_tokens: 2, output_tokens: 3 },
+  })));
+  const usagePath = join(cwd, 'custom/usage.jsonl');
+  await appendUsage({ callId: 'parent', sessionId: 'session', agent: 'sonnet', cwd,
+    usage: { input: 1000, output: 500, total: 1500 },
+    usageCumulative: { input: 2000, output: 1000, total: 3000 } }, usagePath);
+  const events = [];
+  const result = await runAgent('sonnet', 'suite', { cwd, usagePath, resume: 'session',
+    resumedFrom: 'parent', onEvent: (event) => events.push(event) });
+  const expected = { input: 7, cachedInput: 2, output: 3, thinking: 0, total: 10 };
+  assert.equal(result.status, 'ok');
+  const entry = (await readUsage(usagePath)).at(-1);
+  for (const value of [result, entry, events.at(-1), events.find((event) => event.kind === 'usage')]) {
+    assert.deepEqual(value.usage, expected);
+    assert.equal(Object.hasOwn(value, 'usageCumulative'), false);
+  }
 });

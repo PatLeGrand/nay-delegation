@@ -7,6 +7,7 @@ import { computeAlerts } from './monitor/alerts.js';
 import { loadMonitorConfig } from './monitor/config.js';
 import { reduceEvents, latestEventsFile } from './monitor/readEvents.js';
 import { formatReport } from './monitor/report.js';
+import { resumeCall } from './resume.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
 import { readConfig, repositoryRoot } from './config.js';
@@ -16,6 +17,7 @@ import { remainingPct } from './quota/common.js';
 
 const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>]
+  nay resume <callId> <brief.md|-> [--cwd <dossier>]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
   nay check-config
   nay quota
@@ -92,13 +94,14 @@ async function readStdin(stream) {
 }
 
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
-  errorOutput = process.stderr, execute = runAgent, quotasReader = readQuotas, now = Date.now } = {}) {
+  errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now } = {}) {
   try {
     if (args[0] === 'ui') {
       if (args.length !== 1) throw new Error(USAGE);
       await startServer({ root: NAY_ROOT, dataRoot: repositoryRoot(), output, quotasReader, now });
       return 0;
     }
+    if (args[0] === 'resume') return await resumeCommand(args.slice(1), { input, output, errorOutput, resumer });
     if (args[0] === 'status') return await statusCommand(args.slice(1), output, now);
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
@@ -128,6 +131,7 @@ export async function runCommand(args, { input = process.stdin, output = process
 function printResult(result, output) {
   const duration = `${(result.durationMs / 1000).toFixed(1)}s`;
   output.write(`[${result.agent} · ${result.model ?? '?'}/${result.effort ?? '?'} · ${duration} · in ${result.usage.input} / out ${result.usage.output}]\n`);
+  output.write(`callId : ${result.callId ?? '?'}\nsession : ${result.sessionId ?? 'inconnue'}\n`);
   if (result.text) output.write(`${result.text}${result.text.endsWith('\n') ? '' : '\n'}`);
 }
 
@@ -145,4 +149,17 @@ function printQuotas(quotas, config, output) {
   const unavailable = Object.keys(config.agents).map((name) => [name, isAgentAvailable(name, quotas, config)])
     .filter(([, result]) => !result.available);
   if (unavailable.length) output.write(`Agents indisponibles : ${unavailable.map(([name, result]) => `${name} (${result.reason})`).join(', ')}\n`);
+}
+
+async function resumeCommand(args, { input, output, errorOutput, resumer }) {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true,
+    options: { cwd: { type: 'string' } } });
+  if (positionals.length !== 2) throw new Error(USAGE);
+  const [callId, brief] = positionals;
+  const prompt = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
+  const result = await resumer(callId, prompt, { cwd: values.cwd });
+  printResult(result, output);
+  if (result.status === 'ok') return 0;
+  errorOutput.write(`${result.error ?? result.status}\n`);
+  return 1;
 }

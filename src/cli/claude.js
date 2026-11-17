@@ -1,10 +1,11 @@
+import { isSessionId } from '../session.js';
 import { readConfig } from '../config.js';
 import { finalRecord, toolDescriptor, outputText } from './events.js';
 import { failResult } from './usage.js';
 
-export function buildArgs({ model, effort, mode = 'write' }) {
+export function buildArgs({ model, effort, mode = 'write', resume }) {
   return ['-p', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', effort,
-    '--permission-mode', mode === 'write' ? 'acceptEdits' : 'plan'];
+    '--permission-mode', mode === 'write' ? 'acceptEdits' : 'plan', ...(resume ? ['--resume', resume] : [])];
 }
 
 export function parseResult(stdout) {
@@ -34,4 +35,9 @@ export function toEvents(rawEvent, config = readConfig('events')) {
     if (rawEvent.type === 'assistant' && block.type === 'text') return [{ kind: 'message', text: block.text }];
     return [];
   });
+}
+
+export function sessionIdFrom(event) {
+  const id = event?.type === 'result' || (event?.type === 'system' && event.subtype === 'init') ? event.session_id : undefined;
+  return isSessionId(id) ? id : undefined;
 }
