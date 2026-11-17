@@ -1,6 +1,9 @@
 // Toutes les constantes de la page au même endroit.
 
 export const REFRESH_MS = 15000;
+export const CALL_LOAD_ATTEMPTS = 5;
+export const CALL_LOAD_RETRY_MS = 200;
+export const CALL_LIVE_REFRESH_MS = 2000;
 export const RETRY_MS = 5000;
 export const LIVE_REFRESH_MIN_MS = 2000;
 export const SSE_RECONNECT_MS = 5000;

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { findResumableCall, resumeCall } from '../resume.js';
 import { createServer as httpServer } from 'node:http';
 import { readConfig, repositoryRoot } from '../config.js';
 import { readUsage } from '../usageLog.js';
@@ -80,6 +82,12 @@ async function route(request, response, context) {
     checkWriteHeaders(request);
     return json(response, 200, await writeDelegation(root, await readBody(request, config.maxBodyBytes)));
   }
+  const resumeMatch = /^\/api\/calls\/([^/]+)\/resume$/.exec(pathname);
+  if (resumeMatch && request.method === 'POST') {
+    checkWriteHeaders(request);
+    const body = await readBody(request, config.maxBodyBytes);
+    return json(response, 202, await startResume(resumeMatch[1], body, context));
+  }
   if (request.method !== 'GET') throw httpError(405, 'Méthode interdite');
   if (pathname === '/api/events/stream') {
     streams.add(response);
@@ -92,13 +100,13 @@ async function route(request, response, context) {
 }
 
 export function createServer({ root = repositoryRoot(), config = readConfig('ui'), now = Date.now,
-  dataRoot = root, quotasReader = readQuotas, agentsConfig = quotaAgentConfig(),
+  dataRoot = root, resumer = resumeCall, quotasReader = readQuotas, agentsConfig = quotaAgentConfig(),
   monitorConfig = loadMonitorConfig(), usagePath = readConfig('engine').usageLogPath } = {}) {
   if (config.host !== '127.0.0.1') throw new Error('Le serveur doit écouter sur 127.0.0.1');
   const todayFile = () => safePath(dataRoot,
     `${monitorConfig.eventsDir}/${new Date(now()).toISOString().slice(0, 10)}.jsonl`);
   const streams = new Set();
-  const context = { root, dataRoot, config, now, quotasReader, agentsConfig, monitorConfig, usagePath, todayFile, streams };
+  const context = { root, dataRoot, config, now, quotasReader, agentsConfig, monitorConfig, usagePath, todayFile, streams, resumer, resuming: new Set() };
   const server = httpServer(async (request, response) => {
     try {
       const port = server.address()?.port;
@@ -127,4 +135,21 @@ export async function startServer({ root, output = process.stdout, ...options } 
   });
   output.write(`Interface Nay : http://${config.host}:${server.address().port}\n`);
   return server;
+}
+
+async function startResume(resumedFrom, body, context) {
+  if (typeof body?.message !== 'string' || !body.message.trim()) throw httpError(400, 'Message vide');
+  const { dataRoot, usagePath, monitorConfig, resumer, resuming } = context;
+  const options = { journalRoot: dataRoot, usagePath };
+  const entry = await findResumableCall(resumedFrom, options);
+  const call = await readCall(dataRoot, monitorConfig.eventsDir, resumedFrom);
+  if (!call?.events.some((event) => event.kind === 'call_end')) throw httpError(409, 'Appel non terminé');
+  const sessionKey = entry.sessionId;
+  if (resuming.has(sessionKey)) throw httpError(409, 'Reprise de cette session déjà en cours');
+  resuming.add(sessionKey);
+  const callId = randomUUID();
+  Promise.resolve().then(() => resumer(resumedFrom, body.message, { ...options, callId }))
+    .catch(() => {})
+    .finally(() => resuming.delete(sessionKey));
+  return { callId, resumedFrom };
 }

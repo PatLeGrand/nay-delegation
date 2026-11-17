@@ -1,5 +1,5 @@
-import { OUTPUT_PREVIEW_CHARS } from '../config.js';
-import { fetchCall } from '../api.js';
+import { OUTPUT_PREVIEW_CHARS, CALL_LOAD_ATTEMPTS, CALL_LOAD_RETRY_MS, CALL_LIVE_REFRESH_MS } from '../config.js';
+import { fetchCall, resumeCall } from '../api.js';
 import { badge, el, emptyMessage, replaceContent } from '../dom.js';
 import { formatDateTime, formatDuration, formatInt, formatTime, orDash } from '../format.js';
 
@@ -85,12 +85,14 @@ function errorLine(end) {
   return end?.status && end.status !== 'ok' ? el('p', { class: 'error', text: `Fin : ${end.status}${end.error ? ` — ${end.error}` : ''}` }) : null;
 }
 
-function renderCall(events) {
+function renderCall(events, callId) {
   if (!events.length) return emptyMessage('Aucun événement pour cet appel.');
   const summary = summarize(events);
   const items = buildTimeline(events);
   return el('div', {},
     header(summary), errorLine(summary.end),
+    summary.first.resumedFrom ? el('p', { class: 'muted', text: `Reprise de ${summary.first.resumedFrom.slice(0, 8)}` }) : null,
+    summary.end?.sessionId ? replyForm(callId) : null,
     el('h3', { text: 'Outils et messages' }),
     items.length ? el('ol', { class: 'events' }, items.map((i) => (i.type === 'tool' ? toolItem(i) : messageItem(i)))) : emptyMessage('Aucun outil ni message.'));
 }
@@ -98,17 +100,61 @@ function renderCall(events) {
 // Une réponse lente d'un appel précédent ne doit pas remplacer la fiche ouverte ensuite.
 let openRequest = 0;
 
-export async function openAgentDialog(callId) {
+export async function openAgentDialog(callId, { pending = false } = {}) {
   const request = ++openRequest;
   ensureDialog();
   replaceContent(body, el('h2', { text: 'Fiche de l’agent', attrs: { id: 'agent-dialog-title' } }), el('p', { class: 'muted', text: 'Chargement…' }));
   if (!dialog.open) dialog.showModal();
   try {
-    const { events } = await fetchCall(callId);
+    const { events } = await loadCall(callId, pending);
     if (request !== openRequest) return;
-    replaceContent(body, el('h2', { text: 'Fiche de l’agent', attrs: { id: 'agent-dialog-title' } }), renderCall(events ?? []));
+    replaceContent(body, el('h2', { text: 'Fiche de l’agent', attrs: { id: 'agent-dialog-title' } }), renderCall(events ?? [], callId));
+    // Un appel en cours n'a pas encore de fin : relire la fiche jusqu'à son call_end.
+    if (!events?.some((event) => event.kind === 'call_end')) refreshWhileRunning(callId, request);
   } catch (error) {
     if (request !== openRequest) return;
     replaceContent(body, el('h2', { text: 'Fiche de l’agent', attrs: { id: 'agent-dialog-title' } }), el('p', { class: 'error', text: error.message }));
+  }
+}
+
+function refreshWhileRunning(callId, request) {
+  setTimeout(async () => {
+    if (request !== openRequest || !dialog.open) return;
+    try {
+      const { events } = await fetchCall(callId);
+      if (request !== openRequest || !dialog.open) return;
+      replaceContent(body, el('h2', { text: 'Fiche de l’agent', attrs: { id: 'agent-dialog-title' } }), renderCall(events ?? [], callId));
+      if (!events?.some((event) => event.kind === 'call_end')) refreshWhileRunning(callId, request);
+    } catch { refreshWhileRunning(callId, request); }
+  }, CALL_LIVE_REFRESH_MS);
+}
+
+function replyForm(callId) {
+  const message = el('textarea', { attrs: { id: 'agent-reply', rows: 4, required: true } });
+  const errorLine = el('p', { class: 'error', attrs: { role: 'alert' } });
+  const send = el('button', { class: 'btn', text: 'Envoyer', attrs: { type: 'submit' } });
+  const form = el('form', { class: 'agent-reply' }, el('label', { text: 'Répondre à l’agent', attrs: { for: 'agent-reply' } }), message, send, errorLine);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!message.value.trim()) { errorLine.textContent = 'Message vide'; return; }
+    send.disabled = true;
+    errorLine.textContent = '';
+    const request = openRequest;
+    try {
+      const next = await resumeCall(callId, message.value);
+      if (request === openRequest && dialog.open) await openAgentDialog(next.callId, { pending: true });
+    } catch (error) {
+      errorLine.textContent = error.message;
+    } finally { send.disabled = false; }
+  });
+  return form;
+}
+
+async function loadCall(callId, pending) {
+  for (let attempt = 1; ; attempt++) {
+    try { return await fetchCall(callId); } catch (error) {
+      if (!pending || error.status !== 404 || attempt >= CALL_LOAD_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, CALL_LOAD_RETRY_MS));
+    }
   }
 }

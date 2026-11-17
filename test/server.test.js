@@ -51,7 +51,7 @@ test('fiches réelles fusionnées et fiches partielles', async () => {
   for (const key of ['title', 'branch', 'task', 'developer', 'reviewer', 'lastVerdict', 'tests', 'decision', 'final']) assert.equal(partial[key], null, key);
 });
 
-async function fixture(t, memory = false) {
+async function fixture(t, memory = false, options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'nay-server-'));
   for (const directory of ['config', 'ui', 'docs/features', '.nay/state/events']) await mkdir(join(root, directory), { recursive: true });
   await writeFile(join(root, 'ui/index.html'), 'Interface Nay en construction');
@@ -61,7 +61,7 @@ async function fixture(t, memory = false) {
   await writeFile(file, `${JSON.stringify(event('ancien'))}\n`);
   let quotaReads = 0;
   const server = createServer({ root, config: { ...uiConfig, port: 0, sseFilePollMs: 15, sseHeartbeatSec: 0.05 },
-    now: () => now, quotasReader: async () => { quotaReads++; return { codex: { status: 'unknown' } }; } });
+    ...options, now: () => now, quotasReader: async () => { quotaReads++; return { codex: { status: 'unknown' } }; } });
   if (!memory) {
     try {
       server.listen(0, '127.0.0.1');
@@ -205,3 +205,60 @@ async function streamChecks(t, memory) {
 
 test('SSE localhost : ajout, rotation et date', (t) => streamChecks(t, false));
 test('SSE en mémoire : ajout, rotation, date et filtre', (t) => streamChecks(t, true));
+
+test('POST resume : protections, validation, fin et verrou de session, lancement détaché', async (t) => {
+  const { appendUsage } = await import('../src/usageLog.js');
+  const calls = [];
+  let rejectResume;
+  const f = await fixture(t, true, { resumer: (id, message, options) => {
+    calls.push({ id, message, options });
+    return new Promise((resolve, reject) => { rejectResume = reject; });
+  } });
+  const path = join(f.root, '.nay/state/usage.jsonl');
+  for (const entry of [
+    { callId: 'parent', sessionId: 'session' }, { callId: 'alias', sessionId: 'session' },
+    { callId: 'actif', sessionId: 'autre' }, { callId: 'sans-session' },
+    { callId: 'session-invalide', sessionId: '--help' },
+  ]) await appendUsage(entry, path);
+  await appendFile(f.file, [event('parent', { kind: 'call_end' }), event('alias', { kind: 'call_end' }),
+    event('actif')].map(JSON.stringify).join('\n') + '\n');
+  const post = (id, body = { message: 'suite' }, headers = {}) => f.request(`/api/calls/${id}/resume`, {
+    method: 'POST', body: JSON.stringify(body), headers: {
+      Origin: f.origin, 'Content-Type': 'application/json', ...headers,
+    },
+  });
+  assert.equal((await post('parent', undefined, { Origin: undefined })).status, 403);
+  assert.equal((await post('parent', undefined, { Host: 'evil.example' })).status, 403);
+  assert.equal((await post('parent', undefined, { 'Content-Type': 'text/plain' })).status, 403);
+  for (const body of [null, {}, { message: '' }, { message: '  ' }, { message: 3 }]) {
+    assert.equal((await post('parent', body)).status, 400);
+  }
+  const invalidJson = await f.request('/api/calls/parent/resume', {
+    method: 'POST', body: 'pas du JSON',
+    headers: { Origin: f.origin, 'Content-Type': 'application/json' },
+  });
+  assert.equal(invalidJson.status, 400);
+  assert.match(JSON.parse(invalidJson.text).error, /JSON invalide/);
+  assert.equal(calls.length, 0);
+  assert.equal((await post('parent', { message: 'a'.repeat(uiConfig.maxBodyBytes) })).status, 413);
+  assert.equal((await post('absent')).status, 404);
+  assert.equal((await post('sans-session')).status, 404);
+  assert.equal((await post('session-invalide')).status, 404);
+  assert.equal((await post('actif')).status, 409);
+  const accepted = await post('parent');
+  assert.equal(accepted.status, 202);
+  const result = JSON.parse(accepted.text);
+  assert.equal(result.resumedFrom, 'parent');
+  assert.ok(result.callId);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].id, 'parent');
+  assert.equal(calls[0].message, 'suite');
+  assert.equal(calls[0].options.callId, result.callId);
+  assert.equal(calls[0].options.journalRoot, f.root);
+  assert.equal((await post('alias')).status, 409);
+  rejectResume(new Error('échec journal simulé'));
+  await new Promise(setImmediate);
+  assert.equal((await post('alias')).status, 202);
+  rejectResume(new Error('autre échec'));
+  await new Promise(setImmediate);
+});
