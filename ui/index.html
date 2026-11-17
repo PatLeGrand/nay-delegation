@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Nay — tableau de bord</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1>Nay</h1>
+    <p id="live-indicator" class="muted" role="status" data-state="off">Flux en direct : reconnexion…</p>
+  </header>
+
+  <div id="banner" class="banner" role="alert" hidden>Serveur injoignable — nouvel essai en cours…</div>
+
+  <main>
+    <section id="decide" class="decide" aria-live="polite" hidden></section>
+
+    <nav aria-label="Vues">
+      <div id="tabs" class="tabs"></div>
+    </nav>
+
+    <section id="view-dashboard" aria-label="Tableau de bord"></section>
+    <section id="view-features" aria-label="Fonctionnalités" hidden></section>
+    <section id="view-live" aria-label="Agents en direct" hidden></section>
+    <section id="view-timeline" aria-label="Frise" hidden></section>
+    <section id="view-settings" aria-label="Paramètres" hidden></section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "codexSessionsDir": "~/.codex/sessions",
+  "codexMaxSessionFiles": 20,
+  "codexStaleAfterMin": 30,
+  "agyUsageTimeoutSec": 60,
+  "cacheTtlSec": 120,
+  "thresholds": {
+    "default": {
+      "minRemainingPct": 5
+    },
+    "sol": {
+      "window": "5h",
+      "minRemainingPct": 25
+    },
+    "luna": {
+      "minRemainingPct": 0
+    }
+  },
+  "codexReadBlockBytes": 65536,
+  "codexMaxReadBytes": 1048576,
+  "agyGroups": {
+    "Gemini Models": null,
+    "Gemini 4 Argon": "argon"
+  },
+  "agyWindows": {
+    "Five Hour": "5h",
+    "Weekly": "7j"
+  },
+  "claudeQuotaPath": ".nay/state/quota-claude.json",
+  "claudeStaleAfterMin": 30,
+  "claudeWindows": {
+    "five_hour": "5h",
+    "seven_day": "7j"
+  }
+}

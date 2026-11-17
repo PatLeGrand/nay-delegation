@@ -1,0 +1,8 @@
+{
+  "usageLogPath": ".nay/state/usage.jsonl",
+  "codexBin": "/usr/lib/chatgpt/resources/codex",
+  "agyBin": "agy",
+  "claudeBin": "claude",
+  "agyPromptMaxBytes": 32768,
+  "tempDirPrefix": ".nay-call-"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "nay",
+  "version": "0.1.0",
+  "description": "Moteur d'orchestration multi-agents pour le développement logiciel.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "bin": {
+    "nay": "bin/nay.js"
+  }
+}

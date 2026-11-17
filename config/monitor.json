@@ -1,0 +1,8 @@
+{
+  "longCommandSec": 60,
+  "silenceSec": 180,
+  "failuresAlertAt": 3,
+  "eventsDir": ".nay/state/events",
+  "historyMax": 50,
+  "targetMaxChars": 60
+}

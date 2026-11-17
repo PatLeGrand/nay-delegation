@@ -1,0 +1,8 @@
+node_modules/
+.nay/state/
+.nay/worktrees/
+.nay-call-*/
+*.log
+.env
+.env.*
+!.env.example

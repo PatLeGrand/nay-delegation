@@ -1,0 +1,13 @@
+{
+  "explorateur": ["luna", "haiku"],
+  "developpeur": ["sol", "sonnet"],
+  "tachesFaciles": ["terra", "hydrogen"],
+  "surAppel": ["argon"],
+  "relecteur": {
+    "parDefaut": ["hydrogen", "terra", "sonnet", "gemini-flash"],
+    "selonAuteur": {
+      "hydrogen": ["terra", "gemini-flash"],
+      "terra": ["hydrogen", "sonnet", "gemini-flash"]
+    }
+  }
+}
