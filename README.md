@@ -214,16 +214,32 @@ node bin/nay.js ui
 `nay ui` affiche son adresse au démarrage (`http://127.0.0.1:4317` par défaut).
 `config/ui.json` définit les paramètres HTTP, les dossiers de la page et des fiches,
 la limite des requêtes et les intervalles SSE. Le serveur suit [le contrat API](docs/api.md).
-L’interface propose Standup (activité, quotas et derniers résultats), Consommation
-(répartitions et histogramme UTC sur 14 jours), Stories / fonctionnalités
-(passages de relais et fiches), Direct, Frise, Fiabilité et Paramètres.
-Le filtre global sélectionne une fonctionnalité et une période (aujourd’hui UTC,
-7 jours, 30 jours ou tout) ; Direct et Frise suivent les événements du jour.
-Les cartes d’agent affichent le dernier modèle observé et le taux de réussite des
-20 derniers appels disponibles sur la période. Le thème clair ou sombre est mémorisé
-localement ; au premier chargement, il suit la préférence du système.
-Les journaux restent ceux du dépôt Nay central depuis un worktree ; les fiches,
-la page et la délégation viennent du worktree actif. L'enregistrement de
-la délégation utilise un remplacement atomique ; une reprise lance un agent
-avec le mode et le dossier de l'appel d'origine. Les quotas réutilisent
-le cache de `readQuotas()` et son relevé `agy /usage`.
+
+### Concept : Observatoire Orbital
+
+L’interface représente la flotte Nay comme un **Planétarium de vol** : l’orchestrateur occupe le
+noyau central, entouré de trois anneaux orbitaux (Codex, Agy, Claude) dont les arcs lumineux
+affichent directement le quota restant. Chaque agent est un astre dimensionné par sa consommation,
+relié au noyau par un faisceau télémétrique lorsqu’il est en vol, et entouré d’un halo en cas
+d’alerte.
+
+Cinq vues (raccourcis clavier `1` à `5`, `/` pour le filtre fonctionnalité, `T` pour le thème
+clair/sombre, `Échap` pour fermer la boîte noire) :
+
+- **Orbite** (`1`) : planétarium interactif (cliquer un astre ouvre son dossier et filtre la
+  télémétrie), ruban d’alertes, bande télémétrique SSE en direct, vols en cours et réservoirs de quotas.
+- **Relais** (`2`) : trajectoires horizontales des stories (`dev → revue → reprise → fusionnée`),
+  verdicts et fiches complètes, avec sas de décision en tête.
+- **Chronographe** (`3`) : frise UTC du jour cliquable, spectre empilé sur 14 jours (entrée neuve,
+  cache relu, sortie), répartitions et autopsie de fiabilité.
+- **Aiguillage** (`4`) : cascades de priorité par rôle réordonnables par glisser-déposer ou au
+  clavier (`↑`/`↓`), avec disponibilité temps réel et simulateur d’aiguillage.
+- **Laboratoire** (`5`) : fonctionnalités prospectives clairement badgées **Maquette** (budget et
+  économies de cache, arrêt d’urgence, simulation d’aiguillage, décision en un clic), dont les
+  contrats d’API sont détaillés dans [docs/maquettes.md](docs/maquettes.md).
+
+Cliquer n’importe quel appel ouvre sa **Boîte Noire** (journal d’événements, sorties de commandes
+dépliables, filiation de reprise et formulaire « Répondre à l’agent »). Les journaux restent ceux
+du dépôt Nay central depuis un worktree ; les fiches, la page et la délégation viennent du worktree
+actif. L’enregistrement de la délégation utilise un remplacement atomique ; le thème clair ou
+sombre est mémorisé localement (avec suivi de la préférence système au premier chargement).
