@@ -105,6 +105,13 @@ avec ce `callId` dans `usage.jsonl` et conserve l'agent, le mode, la fonctionnal
 le rôle et le dossier absolu ; `--cwd` remplace seulement ce dossier.
 Un appel inconnu ou sans session ne peut pas être repris. Chaque reprise crée
 un nouvel appel, relié au précédent par `resumedFrom`, dans la même conversation.
+
+`--commit` (sur `run` en écriture et sur `resume`) : le sandbox des agents garde `.git` en
+lecture seule, donc Nay committe à leur place. Il ajoute au brief une consigne demandant de
+finir la réponse par `NAY-COMMIT: <message>` et `NAY-FILES: <fichiers>`, puis committe
+uniquement ces fichiers dans le dossier de l'appel et affiche `Commit : <hash> <message>`.
+Sans ces lignes, rien n'est committé. Un fichier hors du dépôt ou un échec de git fait
+échouer la commande.
 Les anciens journaux sans identifiant de session ne permettent pas de reprise.
 
 L'API ESM `resumeCall(callId, prompt, options)` est dans `src/resume.js`.
