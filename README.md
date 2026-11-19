@@ -2,6 +2,9 @@
 
 Moteur d'orchestration multi-agents, en Node.js, pour le développement logiciel.
 
+**Installation** : suivre [docs/installation.md](docs/installation.md), écrit pour être
+exécuté pas à pas par un agent IA comme par un humain.
+
 L'orchestrateur (Claude Opus) coordonne ; le moteur exécute le travail mécanique :
 appel des agents par leur CLI, choix du relecteur, fiches de fonctionnalité,
 travail en parallèle et journal de consommation des jetons.
