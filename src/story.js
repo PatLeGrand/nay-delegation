@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import { join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
-import { COMMIT_INSTRUCTIONS, commitRequest, parseCommitRequest } from './commit.js';
+import { COMMIT_INSTRUCTIONS, commitRequest, lastMarker, parseCommitRequest } from './commit.js';
 import { chooseAgent } from './delegation.js';
 import { runAgent } from './runAgent.js';
 
 const run = promisify(execFile);
+const MAX_DIFF_CHARS = 60_000;
 
 // Codes de sortie de `nay story`.
 export const EXIT = { ok: 0, blocked: 1, noAgent: 2 };
@@ -21,6 +25,28 @@ emplacement et correction minimale. Termine par exactement une ligne :
 NAY-VERDICT: PASS      (aucun défaut bloquant)
 NAY-VERDICT: CHANGES   (défauts bloquants listés au-dessus)`;
 
+const MAX_BUFFER = 64 * 1024 * 1024;
+const IGNORED_DIRS = new Set(['.git', 'node_modules']);
+
+async function hashFile(path) {
+  try {
+    return createHash('sha256').update(await readFile(path)).digest('hex');
+  } catch {
+    return 'illisible';
+  }
+}
+
+// Empreinte hors git : chemins, tailles et contenus de tous les fichiers du dossier.
+async function hashTree(dir) {
+  const hash = createHash('sha256');
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  const files = entries.filter((entry) => entry.isFile()
+    && !relative(dir, join(entry.parentPath, entry.name)).split(sep).some((part) => IGNORED_DIRS.has(part)))
+    .map((entry) => join(entry.parentPath, entry.name)).sort();
+  for (const file of files) hash.update(`${relative(dir, file)}\0${await hashFile(file)}\n`);
+  return hash.digest('hex');
+}
+
 export const gitOps = {
   async isRepo(cwd) {
     try {
@@ -34,11 +60,28 @@ export const gitOps = {
     const { stdout } = await run('git', ['status', '--porcelain'], { cwd });
     return stdout;
   },
+  // Empreinte du contenu de l'arbre : détecte aussi la retouche d'un fichier déjà modifié.
+  async snapshot(cwd, isGit) {
+    if (!isGit) return hashTree(cwd);
+    const { stdout: diff } = await run('git', ['diff', 'HEAD', '--binary'], { cwd, maxBuffer: MAX_BUFFER });
+    const { stdout: untracked } = await run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd });
+    const hash = createHash('sha256').update(diff);
+    for (const file of untracked.split('\0').filter(Boolean).sort()) {
+      hash.update(`${file}\0${await hashFile(join(cwd, file))}\n`);
+    }
+    return hash.digest('hex');
+  },
+  // Diff fourni au relecteur : il n'a pas à lancer git (le shell est bloqué chez agy en lecture seule).
+  async show(cwd, commit, maxChars) {
+    const { stdout } = await run('git', ['show', '--stat', '--patch', '--format=%h %s', commit],
+      { cwd, maxBuffer: MAX_BUFFER });
+    return stdout.length > maxChars
+      ? `${stdout.slice(0, maxChars)}\n[… diff tronqué à ${maxChars} caractères : ouvre les fichiers pour la suite]`
+      : stdout;
+  },
 };
 
-export function parseLine(text = '', key) {
-  return text.match(new RegExp(`^${key}:[ \\t]*(.+)$`, 'm'))?.[1].trim() ?? null;
-}
+export const parseLine = lastMarker;
 
 export function parseVerdict(text) {
   const verdict = parseLine(text, 'NAY-VERDICT')?.split(/\s+/)[0].toUpperCase();
@@ -75,13 +118,13 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
     } catch (error) {
       return stop('AUCUN AGENT', EXIT.noAgent, error.message);
     }
-    const before = isGit ? await git.status(cwd) : null;
+    const before = await git.snapshot(cwd, isGit);
     const result = await execute(agent, devPrompt, { mode: 'write', cwd, feature, role: 'dev' });
     if (result.status === 'ok') {
       dev = result;
       break;
     }
-    const touched = isGit ? (await git.status(cwd)) !== before : result.usage?.output > 0;
+    const touched = (await git.snapshot(cwd, isGit)) !== before;
     if (touched) {
       report.dev = agent;
       return stop('BLOQUÉ', EXIT.blocked, `${agent} a échoué après avoir modifié des fichiers : ${shortError(result)}`);
@@ -93,14 +136,16 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
 
   for (let round = 1; ; round += 1) {
     report.checks = parseLine(dev.text, 'NAY-CHECKS') ?? report.checks;
-    let target = 'les modifications non committées (`git diff`, `git status`)';
+    let target = 'les fichiers modifiés et non committés du dossier';
     if (isGit) {
       const request = parseCommitRequest(dev.text);
       if (request) {
         try {
           const line = await committer(request, { cwd });
           report.commits.push(line);
-          target = `le commit ${line.split(' ')[0]} (\`git show ${line.split(' ')[0]}\`)`;
+          const hash = line.split(' ')[0];
+          target = `le commit ${hash}, dont voici le diff complet (ouvre les fichiers si tu as besoin `
+            + `de plus de contexte) :\n\n\`\`\`diff\n${await git.show(cwd, hash, MAX_DIFF_CHARS)}\n\`\`\``;
         } catch (error) {
           return stop('BLOQUÉ', EXIT.blocked, `Commit impossible : ${error.stderr?.trim() || error.message}`);
         }

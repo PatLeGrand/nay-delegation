@@ -38,6 +38,12 @@ test('agy analyse les quotas Gemini et refuse une sortie inconnue', () => {
   for (const text of ['', 'sortie inattendue', 'Gemini Models\tWeekly\t?\t?']) assert.equal(parseAgyUsage(text, now).status, 'unknown');
 });
 
+test('Sans seuils configurés, la disponibilité ne plante pas', () => {
+  const config = { agents: { sol: { cli: 'codex' } }, thresholds: {} };
+  const quotas = { codex: { status: 'ok', windows: [{ label: '5h', remainingPct: 10, resetsAt: '2099-01-01T00:00:00Z' }] } };
+  assert.equal(isAgentAvailable('sol', quotas, config).available, true);
+});
+
 test('Les seuils et les fenêtres propres déterminent la disponibilité', () => {
   const config = { agents: { sol: { cli: 'codex' }, luna: { cli: 'codex' }, argon: { cli: 'agy' } },
     thresholds: { default: { minRemainingPct: 5 }, sol: { window: '5h', minRemainingPct: 25 }, luna: { minRemainingPct: 0 } } };

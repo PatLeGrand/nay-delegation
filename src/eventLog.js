@@ -63,12 +63,17 @@ export function appendEvent(event, directory, config) {
   return pending;
 }
 
-export function maskEvent(event, config) {
-  const mask = (value) => typeof value === 'string' ? config.secretPatterns.reduce(
+export function maskSecrets(value, config) {
+  return typeof value === 'string' ? config.secretPatterns.reduce(
     (text, rule) => text.replace(new RegExp(rule.pattern, rule.flags), rule.replacement), value) : value;
+}
+
+// `error` porte le stderr des CLI : il peut contenir des secrets comme les sorties d'outils.
+export function maskEvent(event, config) {
+  const mask = (value) => maskSecrets(value, config);
   return { ...event,
     ...(event.tool ? { tool: { ...event.tool, target: mask(event.tool.target) } } : {}),
-    ...Object.fromEntries(['text', 'output'].filter((key) => key in event).map((key) => [key, mask(event[key])])) };
+    ...Object.fromEntries(['text', 'output', 'error'].filter((key) => key in event).map((key) => [key, mask(event[key])])) };
 }
 
 function matchTool(tools, tool) {
