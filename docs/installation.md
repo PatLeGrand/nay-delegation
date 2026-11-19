@@ -126,6 +126,42 @@ node ~/Documents/Projets/nay-delegation/bin/nay.js ui
 Ouvre `http://127.0.0.1:4318` : agents, consommation, appels en direct. Le journal est dans
 `.nay/state/` (ignoré par Git).
 
+## 8. Installer Nay dans le système (facultatif)
+
+**Commande `nay` partout** : un lien (pas une copie), la mise à jour du dépôt suffit.
+```bash
+ln -s ~/Documents/Projets/nay-delegation/bin/nay.js ~/.local/bin/nay
+```
+
+**Interface toujours active** (Linux, service systemd utilisateur) :
+`~/.config/systemd/user/nay-ui.service`
+```ini
+[Unit]
+Description=Nay - interface locale (nay ui)
+
+[Service]
+WorkingDirectory=%h/Documents/Projets/nay-delegation
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/chemin/vers/node %h/Documents/Projets/nay-delegation/bin/nay.js ui
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now nay-ui
+```
+
+**Mise à jour** : `nay update` (refuse si le dépôt n'est pas sur `main` ou a des modifications ;
+puis `git pull --ff-only`, `check-config` et redémarrage du service). Le dossier de Nay doit
+rester sur `main` : pour travailler sur Nay, utiliser un worktree séparé.
+
+**Codex sans dépôt indiqué** : une skill globale `~/.codex/skills/nay/SKILL.md` (commandes de
+la section 6) et une règle `~/.codex/rules/nay.rules` :
+`prefix_rule(pattern = ["nay"], decision = "allow")`. La skill doit demander l'exécution hors
+sandbox (`require_escalated`) : Nay écrit son journal hors du dossier courant. `codex exec`
+(sans interface) refuse toute élévation ; l'app Codex l'accepte.
+
 ## Pièges connus
 
 | Symptôme | Cause | Solution |

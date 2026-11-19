@@ -16,6 +16,7 @@ import { readConfig, repositoryRoot } from './config.js';
 import { startServer } from './server/app.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from './quota/index.js';
 import { remainingPct } from './quota/common.js';
+import { runUpdate } from './update.js';
 
 const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
@@ -26,6 +27,7 @@ const USAGE = `Usage :
   nay check-config
   nay quota
   nay ui
+  nay update   (main propre → git pull → check-config → redémarre le service nay-ui)
   nay status [--file <events.jsonl>] [--feature <nom>]`;
 
 // Racine du dépôt Nay : le dossier qui contient config/.
@@ -116,8 +118,14 @@ async function readStdin(stream) {
 
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
-  committer = commitRequest, storyRunner = runStory } = {}) {
+  committer = commitRequest, storyRunner = runStory, updater = runUpdate } = {}) {
   try {
+    if (args[0] === 'update') {
+      if (args.length !== 1) throw new Error(USAGE);
+      const { code, lines } = await updater({ root: NAY_ROOT.replace(/\/$/, '') });
+      (code === 0 ? output : errorOutput).write(`${lines.join('\n')}\n`);
+      return code;
+    }
     if (args.length === 1 && ['--help', '-h', 'help'].includes(args[0])) {
       output.write(`${USAGE}\n`);
       return 0;
