@@ -1,16 +1,22 @@
-// Toutes les constantes de la page au même endroit.
+// Configuration et constantes de l'Observatoire Orbital Nay.
 
 export const REFRESH_MS = 15000;
+export const LIVE_TICK_MS = 1000;
 export const CALL_LOAD_ATTEMPTS = 5;
-export const CALL_LOAD_RETRY_MS = 200;
+export const CALL_LOAD_RETRY_MS = 250;
 export const CALL_LIVE_REFRESH_MS = 2000;
-export const RETRY_MS = 5000;
-export const LIVE_REFRESH_MIN_MS = 2000;
 export const SSE_RECONNECT_MS = 5000;
-export const RECENT_CALLS_LIMIT = 50;
-export const OUTPUT_PREVIEW_CHARS = 200;
-export const TIMELINE_TICKS = 5;
-export const TIMELINE_MIN_BAR_PCT = 0.6;
+export const LIVE_TAPE_LIMIT = 60;
+export const OUTPUT_PREVIEW_CHARS = 240;
+export const HISTOGRAM_DAYS = 14;
+export const DAY_MS = 86400000;
+export const SUCCESS_SAMPLE_SIZE = 20;
+export const LOW_QUOTA_PCT = 25;
+export const CRITICAL_QUOTA_PCT = 10;
+
+export const SVG_NS = 'http://www.w3.org/2000/svg';
+export const THEME_KEY = 'nay-observatory-theme';
+export const THEMES = ['dark', 'light'];
 
 export const API = {
   usage: '/api/usage',
@@ -23,37 +29,44 @@ export const API = {
 };
 
 export const VIEWS = [
-  { id: 'standup', label: 'Standup' },
-  { id: 'dashboard', label: 'Consommation' },
-  { id: 'features', label: 'Stories / fonctionnalités' },
-  { id: 'live', label: 'Direct' },
-  { id: 'timeline', label: 'Frise' },
-  { id: 'reliability', label: 'Fiabilité' },
-  { id: 'settings', label: 'Paramètres' },
+  { id: 'orbite', key: '1', label: 'Orbite', subtitle: 'Planétarium de vol, quotas et télémétrie en direct' },
+  { id: 'relais', key: '2', label: 'Relais', subtitle: 'Trajectoires des stories, verdicts et reprises de session' },
+  { id: 'chronographe', key: '3', label: 'Chronographe', subtitle: 'Frise du jour, spectre 14 jours et fiabilité' },
+  { id: 'aiguillage', key: '4', label: 'Aiguillage', subtitle: 'Cascade de délégation par rôle et disponibilité' },
+  { id: 'laboratoire', key: '5', label: 'Laboratoire', subtitle: 'Fonctionnalités en maquette et contrats d’API proposés' },
 ];
-export const DEFAULT_VIEW = 'standup';
+export const DEFAULT_VIEW = 'orbite';
 
-// Couleurs de la frise et des pastilles d'agent (lisibles en thème clair et sombre).
-export const AGENT_COLORS = {
-  sol: '#2a7de1',
-  terra: '#2f9e5b',
-  hydrogen: '#d9822b',
-  luna: '#8e5bd1',
-  argon: '#c2477f',
-  sonnet: '#b8860b',
-  haiku: '#7a8a3a',
-  'gemini-flash': '#d4513d',
-  opus: '#5b6bd1',
+export const PERIODS = [
+  { value: 'today', label: 'Aujourd’hui (UTC)', days: 1 },
+  { value: 'week', label: '7 jours', days: 7 },
+  { value: 'month', label: '30 jours', days: 30 },
+  { value: 'all', label: 'Tout', days: null },
+];
+export const DEFAULT_PERIOD = 'all';
+
+// Signatures chromatiques et orbitales des agents.
+export const AGENT_META = {
+  sol: { color: '#f59e0b', glyph: '☉', provider: 'codex', label: 'Sol' },
+  terra: { color: '#10b981', glyph: '♁', provider: 'codex', label: 'Terra' },
+  luna: { color: '#94a3b8', glyph: '☾', provider: 'codex', label: 'Luna' },
+  astra: { color: '#eab308', glyph: '✦', provider: 'codex', label: 'Astra' },
+  neon: { color: '#06b6d4', glyph: '◈', provider: 'agy', label: 'Neon' },
+  hydrogen: { color: '#fb7185', glyph: '◉', provider: 'agy', label: 'Hydrogen' },
+  argon: { color: '#a855f7', glyph: '⬡', provider: 'agy', label: 'Argon' },
+  'gemini-flash': { color: '#f97316', glyph: '⚡', provider: 'agy', label: 'Gemini Flash' },
+  sonnet: { color: '#3b82f6', glyph: '♫', provider: 'claude', label: 'Sonnet' },
+  haiku: { color: '#14b8a6', glyph: '◌', provider: 'claude', label: 'Haiku' },
+  opus: { color: '#f5a623', glyph: '◎', provider: 'claude', label: 'Opus' },
 };
-export const AGENT_FALLBACK_COLORS = ['#6c7a89', '#a0522d', '#4682b4', '#9b870c', '#7b4fa3'];
+export const FALLBACK_COLORS = ['#64748b', '#d97706', '#0ea5e9', '#ec4899', '#84cc16'];
 
-// Ordre d'affichage de l'arbre ; les alias couvrent les valeurs libres de `--role`.
-export const ROLE_TREE = [
-  { id: 'orchestrateur', label: 'Orchestrateur' },
-  { id: 'explorateur', label: 'Explorateur' },
-  { id: 'developpeur', label: 'Développeur' },
-  { id: 'relecteur', label: 'Relecteur' },
+export const PROVIDER_ORBITS = [
+  { id: 'codex', label: 'Codex', radius: 108, color: '#f59e0b' },
+  { id: 'agy', label: 'Agy', radius: 168, color: '#06b6d4' },
+  { id: 'claude', label: 'Claude', radius: 222, color: '#3b82f6' },
 ];
+
 export const ROLE_ALIASES = {
   dev: 'developpeur',
   developer: 'developpeur',
@@ -62,8 +75,17 @@ export const ROLE_ALIASES = {
   explorer: 'explorateur',
   orchestrator: 'orchestrateur',
 };
-export const OTHER_ROLES_LABEL = 'Autres rôles';
-export const NO_FEATURE_LABEL = '(sans fonctionnalité)';
+
+export const ROLE_LABELS = {
+  orchestrateur: 'Orchestrateur',
+  explorateur: 'Explorateur',
+  developpeur: 'Développeur',
+  tachesFaciles: 'Tâches faciles',
+  surAppel: 'Sur appel',
+  relecteur: 'Relecteur',
+};
+
+export const DELEGATION_SIMPLE_ROLES = ['explorateur', 'developpeur', 'tachesFaciles', 'surAppel'];
 
 export const FEATURE_STATE_LABELS = {
   en_cours: 'En cours',
@@ -73,72 +95,43 @@ export const FEATURE_STATE_LABELS = {
 };
 
 export const CALL_STATUS_LABELS = {
-  running: 'en cours',
-  ok: 'terminé',
-  error: 'échec',
-  timeout: 'délai dépassé',
+  running: 'En vol',
+  ok: 'Terminé',
+  error: 'Échec',
+  timeout: 'Délai dépassé',
 };
 
 export const ALERT_KIND_LABELS = {
   commande_longue: 'Commande longue',
+  silence: 'Silence prolongé',
+  echecs: 'Échecs répétés',
+  travail_repete: 'Travail répété',
 };
 
-export const DELEGATION_ROLE_LABELS = {
-  explorateur: 'Explorateur',
-  developpeur: 'Développeur',
-  tachesFaciles: 'Tâches faciles',
-  surAppel: 'Sur appel',
-  relecteur: 'Relecteur',
+export const TOOL_KIND_LABELS = {
+  command: 'Commande',
+  read: 'Lecture',
+  edit: 'Édition',
+  search: 'Recherche',
+  web: 'Web',
+  other: 'Outil',
 };
 
-export const USAGE_GROUPS = [
-  { key: 'byAgent', title: 'Par agent' },
-  { key: 'byModel', title: 'Par modèle' },
-  { key: 'byFeature', title: 'Par fonctionnalité' },
-  { key: 'byRole', title: 'Par rôle' },
-];
+export const NO_FEATURE_LABEL = '(sans fonctionnalité)';
 
-export const THEME_KEY = 'nay-theme';
-export const THEMES = ['dark', 'light'];
-export const DAY_MS = 86400000;
-export const HISTOGRAM_DAYS = 14;
-export const STANDUP_RECENT_LIMIT = 10;
-export const SUCCESS_SAMPLE_SIZE = 20;
-export const RECENT_FAILURE_MS = 86400000;
-export const LOW_QUOTA_PCT = 20;
-export const PERIODS = [
-  { value: 'today', label: 'Aujourd’hui (UTC)', days: 1 },
-  { value: 'week', label: '7 jours', days: 7 },
-  { value: 'month', label: '30 jours', days: 30 },
-  { value: 'all', label: 'Tout', days: null },
-];
-export const DEFAULT_PERIOD = 'all';
-export const VIEW_DESCRIPTIONS = {
-  standup: 'L’équipe, son activité et ses derniers résultats.',
-  dashboard: 'Les jetons et le temps consacrés à vos projets.',
-  features: 'Suivez les passages de relais, du développement à la correction.',
-  live: 'Les outils et les appels suivis en temps réel, aujourd’hui.',
-  timeline: 'Le déroulement des appels d’aujourd’hui, par fonctionnalité.',
-  reliability: 'Les résultats et les causes d’échec sur la période sélectionnée.',
-  settings: 'Définissez l’ordre des agents pour chaque rôle.',
+// Tarifs indicatifs ($ / 1M jetons) utilisés uniquement par la maquette Budget.
+export const MOCK_PRICING_PER_M = {
+  sol: { input: 3.0, cached: 0.3, output: 15.0 },
+  terra: { input: 1.5, cached: 0.15, output: 6.0 },
+  luna: { input: 0.5, cached: 0.05, output: 2.0 },
+  astra: { input: 5.0, cached: 0.5, output: 20.0 },
+  neon: { input: 2.5, cached: 0.25, output: 12.0 },
+  hydrogen: { input: 1.25, cached: 0.12, output: 5.0 },
+  argon: { input: 2.0, cached: 0.2, output: 10.0 },
+  'gemini-flash': { input: 0.35, cached: 0.04, output: 1.4 },
+  sonnet: { input: 3.0, cached: 0.3, output: 15.0 },
+  haiku: { input: 0.8, cached: 0.08, output: 4.0 },
+  default: { input: 2.0, cached: 0.2, output: 10.0 },
 };
-export const NAV_ICONS = {
-  standup: ['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8', 'M22 21v-2a4 4 0 0 0-3-3.87', 'M16 3.13a4 4 0 0 1 0 7.75'],
-  dashboard: ['M4 20V10', 'M12 20V4', 'M20 20v-7'],
-  features: ['M4 4h6v6H4z', 'M14 14h6v6h-6z', 'M7 10v7h7', 'M10 7h7v7'],
-  live: ['M2 12h4l3-8 6 16 3-8h4'],
-  timeline: ['M4 5h10', 'M8 12h12', 'M4 19h8'],
-  reliability: ['M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6z', 'M8 12l3 3 5-6'],
-  settings: ['M4 6h16', 'M4 12h16', 'M4 18h16', 'M8 3v6', 'M16 9v6', 'M10 15v6'],
-};
-export const SVG_NS = 'http://www.w3.org/2000/svg';
 
-export const SKELETON_COUNT = 3;
-export const DATA_LABELS = { usage: 'Consommation', quota: 'Quotas', status: 'Direct', features: 'Fiches', delegation: 'Délégation' };
-export const VIEW_DEPENDENCIES = {
-  standup: ['quota', 'usage', 'status', 'delegation'], dashboard: ['usage', 'quota'],
-  features: ['features', 'usage', 'status'], live: ['status'], timeline: ['status'], reliability: ['usage'],
-};
-export const STORY_ROLE_LABELS = {
-  developpeur: 'Développement', relecteur: 'Revue', explorateur: 'Exploration', orchestrateur: 'Orchestration',
-};
+export const MOCK_DAILY_BUDGET_USD = 25;

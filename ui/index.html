@@ -1,37 +1,49 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark light">
-  <title>Nay — pilotage des agents</title>
-  <link rel="stylesheet" href="style.css">
-  <script type="module" src="app.js"></script>
+  <title>Nay — Observatoire Orbital</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <a class="skip-link" href="#content">Aller au contenu</a>
-  <aside class="sidebar">
-    <a class="brand" href="#standup"><span class="brand-mark" aria-hidden="true">N</span><span>Nay<small>ÉQUIPE D’AGENTS</small></span></a>
-    <nav aria-label="Vues"><div id="tabs" class="tabs"></div></nav>
-    <div class="sidebar-footer"><span class="muted">Votre poste de pilotage local</span><button id="theme-toggle" class="btn" type="button">Changer de thème</button></div>
-  </aside>
-  <div class="workspace">
-    <header class="site-header">
-      <div class="heading"><p class="eyebrow">ESPACE DE TRAVAIL / NAY</p><h1 id="view-title">Standup</h1><p id="view-description" class="muted"></p></div>
-      <div id="live-indicator" class="live-indicator" role="status" data-state="off">Reconnexion…</div>
-      <div id="filters" class="filters" role="group" aria-label="Filtres globaux"></div>
-    </header>
-    <div id="banner" class="banner" role="alert" hidden>Serveur injoignable — nouvel essai en cours…</div>
-    <main id="content" tabindex="-1">
-      <section id="decide" class="decide" aria-live="polite" hidden></section>
-      <section id="view-standup" aria-label="Standup"></section>
-      <section id="view-dashboard" aria-label="Consommation" hidden></section>
-      <section id="view-features" aria-label="Stories et fonctionnalités" hidden></section>
-      <section id="view-live" aria-label="Agents en direct" hidden></section>
-      <section id="view-timeline" aria-label="Frise" hidden></section>
-      <section id="view-reliability" aria-label="Fiabilité" hidden></section>
-      <section id="view-settings" aria-label="Paramètres" hidden></section>
-    </main>
-  </div>
+  <a class="skip-link" href="#stage">Aller au contenu principal</a>
+
+  <header class="topbar">
+    <div class="topbar__brand">
+      <span class="brand-mark" aria-hidden="true">◎</span>
+      <div class="brand-text">
+        <h1 class="brand-title">NAY <span class="brand-sub">// OBSERVATOIRE</span></h1>
+      </div>
+      <span id="header-live-badge" class="live-badge live-badge--idle" role="status" aria-live="polite">Flotte en veille</span>
+    </div>
+
+    <div class="topbar__controls">
+      <label class="sr-only" for="filter-feature">Filtrer par fonctionnalité</label>
+      <select id="filter-feature" class="select select-top" title="Filtrer par fonctionnalité (touche /)">
+        <option value="">Toutes les fonctionnalités</option>
+      </select>
+
+      <label class="sr-only" for="filter-period">Filtrer par période</label>
+      <select id="filter-period" class="select select-top" title="Période d’analyse"></select>
+
+      <button id="refresh-btn" type="button" class="btn btn-ghost btn-sm" title="Actualiser les données">↻</button>
+      <button id="theme-toggle" type="button" class="btn btn-ghost btn-sm" title="Changer de thème (touche T)">☀ Clair</button>
+    </div>
+  </header>
+
+  <nav id="main-nav" class="nav-rail" aria-label="Vues de l’Observatoire"></nav>
+
+  <main id="stage" class="stage" tabindex="-1"></main>
+
+  <div id="drawer-root" hidden></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+
+  <footer class="app-footer">
+    <span class="mono">NAY // PLANÉTARIUM DE VOL</span>
+    <span class="muted">Raccourcis : <kbd>1</kbd>–<kbd>5</kbd> vues · <kbd>/</kbd> filtre · <kbd>T</kbd> thème · <kbd>Échap</kbd> fermer</span>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
 </body>
 </html>
