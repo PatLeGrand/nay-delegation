@@ -118,6 +118,10 @@ export async function runCommand(args, { input = process.stdin, output = process
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
   committer = commitRequest, storyRunner = runStory } = {}) {
   try {
+    if (args.length === 1 && ['--help', '-h', 'help'].includes(args[0])) {
+      output.write(`${USAGE}\n`);
+      return 0;
+    }
     if (args[0] === 'ui') {
       if (args.length !== 1) throw new Error(USAGE);
       await startServer({ root: NAY_ROOT, dataRoot: repositoryRoot(), output, quotasReader, now });

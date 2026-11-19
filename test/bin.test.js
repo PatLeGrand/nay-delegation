@@ -57,6 +57,15 @@ test('La CLI refuse les arguments incomplets ou inconnus avant tout appel', asyn
   }
 });
 
+test('--help, -h et help affichent l’usage et réussissent', async () => {
+  for (const flag of ['--help', '-h', 'help']) {
+    const captured = streams();
+    const code = await runCommand([flag], { ...captured, execute: () => assert.fail('appel interdit') });
+    assert.equal(code, 0);
+    assert.match(captured.stdout, /^Usage :/);
+  }
+});
+
 test('choose affiche le choix et les raisons sans appeler d’agent', async () => {
   const captured = streams();
   const code = await runCommand(['choose', 'relecteur', '--author', 'terra',

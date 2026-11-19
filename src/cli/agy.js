@@ -8,11 +8,15 @@ export function requiresBriefFile(prompt, maxBytes) {
 }
 
 // skipPermissions : en écriture seulement, et contrôlé en amont (worktree Git lié uniquement).
+// En écriture : bac à sable d'agy (mode par défaut). Commandes et éditions approuvées d'office,
+// écriture limitée au dossier de travail, réseau coupé — même niveau que Codex workspace-write.
+// `--dangerously-skip-permissions` désactive ce bac à sable : il le remplace, jamais les deux.
 export function buildArgs({ model, effort, prompt, timeoutMin, mode = 'write', resume, skipPermissions = false }) {
+  const write = mode === 'write';
+  const permissions = !write ? ['--mode', 'plan'] : skipPermissions ? ['--dangerously-skip-permissions'] : ['--sandbox'];
   return ['-p', prompt, '--model', model.replaceAll('{effort}', effort),
     '--output-format', 'stream-json', '--print-timeout', `${timeoutMin}m`,
-    '--mode', mode === 'write' ? 'accept-edits' : 'plan', ...(resume ? ['--conversation', resume] : []),
-    ...(skipPermissions && mode === 'write' ? ['--dangerously-skip-permissions'] : [])];
+    ...permissions, ...(resume ? ['--conversation', resume] : [])];
 }
 
 export function parseResult(stdout) {

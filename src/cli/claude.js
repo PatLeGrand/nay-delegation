@@ -3,9 +3,15 @@ import { readConfig } from '../config.js';
 import { finalRecord, toolDescriptor, outputText } from './events.js';
 import { failResult } from './usage.js';
 
+// En écriture, les commandes shell tournent dans le bac à sable de Claude Code (écriture limitée
+// au dossier de travail et au dossier temporaire) et sont approuvées d'office ; aucune évasion.
+export const WRITE_SANDBOX = JSON.stringify({ sandbox: { enabled: true, autoAllowBashIfSandboxed: true,
+  allowUnsandboxedCommands: false } });
+
 export function buildArgs({ model, effort, mode = 'write', resume }) {
   return ['-p', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', effort,
-    '--permission-mode', mode === 'write' ? 'acceptEdits' : 'plan', ...(resume ? ['--resume', resume] : [])];
+    '--permission-mode', mode === 'write' ? 'acceptEdits' : 'plan',
+    ...(mode === 'write' ? ['--settings', WRITE_SANDBOX] : []), ...(resume ? ['--resume', resume] : [])];
 }
 
 export function parseResult(stdout) {
