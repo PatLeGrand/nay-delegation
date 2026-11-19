@@ -293,6 +293,23 @@ test('agy : un shell bloqué en lecture seule est nommé et repris une fois sans
   assert.equal(entries[1].resumedFrom, entries[0].callId);
 });
 
+test('agy : pas de reprise automatique quand l’appelant impose le callId', async (t) => {
+  let count = 0;
+  const cwd = await setup(t, ({ child }) => {
+    count += 1;
+    finish(child, [
+      JSON.stringify({ event: 'init', conversation_id: '22222222-2222-4222-8222-222222222222' }),
+      JSON.stringify({ event: 'step_update', step_update: { step_type: 'tool', step_index: 1, tool_name: 'run_command',
+        state: 'DONE', tool_info: { parameters: { CommandLine: 'ls' }, output: '' } } }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: '' } }),
+    ].join('\n'));
+  });
+  const result = await runAgent('hydrogen', 'brief', { cwd, mode: 'read', callId: 'impose' });
+  assert.equal(count, 1);
+  assert.equal(result.callId, 'impose');
+  assert.match(result.error, /Shell bloqué en mode plan/);
+});
+
 test('Un identifiant de reprise invalide est refusé sans lancer de processus', async (t) => {
   const cwd = await setup(t, () => assert.fail('processus interdit'));
   const result = await runAgent('hydrogen', 'brief', { cwd, mode: 'read', resume: '--dangerously-skip-permissions' });

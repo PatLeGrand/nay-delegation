@@ -164,9 +164,12 @@ function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, r
 export async function runAgent(name, prompt, options = {}) {
   const result = await runAgentOnce(name, prompt, options);
   // Une seule seconde chance : reprendre la session en rappelant l'interdiction du shell.
-  if (!result.shellBlocked || options.shellRetried || !isSessionId(result.sessionId)) return clean(result);
-  const { callId: _ignored, ...rest } = options;
-  const retry = await runAgentOnce(name, AGY_SHELL_RETRY, { ...rest, resume: result.sessionId,
+  // Pas de reprise quand l'appelant impose le callId (interface) : il suit cet appel précis et
+  // verrait l'échec sans la seconde tentative ; l'erreur explicite lui permet de reprendre.
+  if (!result.shellBlocked || options.shellRetried || options.callId || !isSessionId(result.sessionId)) {
+    return clean(result);
+  }
+  const retry = await runAgentOnce(name, AGY_SHELL_RETRY, { ...options, resume: result.sessionId,
     resumedFrom: result.callId, shellRetried: true });
   return clean(retry);
 }

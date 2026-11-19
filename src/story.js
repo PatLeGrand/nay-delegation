@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { readdir, readFile, readlink } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { COMMIT_INSTRUCTIONS, commitRequest, lastMarker, parseCommitRequest } from './commit.js';
 import { chooseAgent } from './delegation.js';
@@ -36,14 +36,33 @@ async function hashFile(path) {
   }
 }
 
-// Empreinte hors git : chemins, tailles et contenus de tous les fichiers du dossier.
-async function hashTree(dir) {
+// Empreinte hors git : chemins et contenus des fichiers, cibles des liens symboliques.
+// Les dossiers ignorés sont écartés avant d'y descendre ; un dossier illisible compte comme tel.
+async function hashTree(root) {
   const hash = createHash('sha256');
-  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
-  const files = entries.filter((entry) => entry.isFile()
-    && !relative(dir, join(entry.parentPath, entry.name)).split(sep).some((part) => IGNORED_DIRS.has(part)))
-    .map((entry) => join(entry.parentPath, entry.name)).sort();
-  for (const file of files) hash.update(`${relative(dir, file)}\0${await hashFile(file)}\n`);
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      hash.update(`${relative(root, dir)}\0dossier illisible\n`);
+      return;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(dir, entry.name);
+      const rel = relative(root, path);
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIRS.has(entry.name)) await walk(path);
+      } else if (entry.isSymbolicLink()) {
+        let target;
+        try { target = await readlink(path); } catch { target = 'illisible'; }
+        hash.update(`${rel}\0lien\0${target}\n`);
+      } else if (entry.isFile()) {
+        hash.update(`${rel}\0${await hashFile(path)}\n`);
+      }
+    }
+  }
+  await walk(root);
   return hash.digest('hex');
 }
 
@@ -75,16 +94,29 @@ export const gitOps = {
   async show(cwd, commit, maxChars) {
     const { stdout } = await run('git', ['show', '--stat', '--patch', '--format=%h %s', commit],
       { cwd, maxBuffer: MAX_BUFFER });
-    return stdout.length > maxChars
-      ? `${stdout.slice(0, maxChars)}\n[… diff tronqué à ${maxChars} caractères : ouvre les fichiers pour la suite]`
-      : stdout;
+    return truncate(stdout, maxChars);
+  },
+  // Modifications non committées : diff des fichiers suivis et liste des nouveaux fichiers.
+  async uncommitted(cwd, maxChars) {
+    const { stdout: diff } = await run('git', ['diff', 'HEAD', '--stat', '--patch'], { cwd, maxBuffer: MAX_BUFFER });
+    const { stdout: untracked } = await run('git', ['ls-files', '--others', '--exclude-standard'], { cwd });
+    const added = untracked.trim() ? `\n\nNouveaux fichiers non suivis (à ouvrir) :\n${untracked.trim()}` : '';
+    return truncate(`${diff}${added}`, maxChars);
   },
 };
 
+function truncate(text, maxChars) {
+  return text.length > maxChars
+    ? `${text.slice(0, maxChars)}\n[… tronqué à ${maxChars} caractères : ouvre les fichiers pour la suite]`
+    : text;
+}
+
 export const parseLine = lastMarker;
 
-export function parseVerdict(text) {
-  const verdict = parseLine(text, 'NAY-VERDICT')?.split(/\s+/)[0].toUpperCase();
+// Le verdict doit être la dernière ligne non vide ; toute autre forme vaut CHANGES.
+export function parseVerdict(text = '') {
+  const last = text.trim().split('\n').at(-1)?.trim() ?? '';
+  const verdict = last.match(/^NAY-VERDICT:[ \t]*(\S+)/)?.[1].toUpperCase();
   return verdict === 'PASS' ? 'PASS' : 'CHANGES';
 }
 
@@ -151,6 +183,9 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
         }
       } else if (round === 1 && !(await git.status(cwd)).trim()) {
         return stop('BLOQUÉ', EXIT.blocked, 'Le dev n’a rien modifié ni demandé de commit');
+      } else {
+        target = `les modifications non committées, dont voici le diff (ouvre les fichiers si tu as `
+          + `besoin de plus de contexte) :\n\n\`\`\`diff\n${await git.uncommitted(cwd, MAX_DIFF_CHARS)}\n\`\`\``;
       }
     } else {
       target = 'les fichiers modifiés par le dev';
