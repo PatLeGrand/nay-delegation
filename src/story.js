@@ -1,0 +1,165 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { COMMIT_INSTRUCTIONS, commitRequest, parseCommitRequest } from './commit.js';
+import { chooseAgent } from './delegation.js';
+import { runAgent } from './runAgent.js';
+
+const run = promisify(execFile);
+
+// Codes de sortie de `nay story`.
+export const EXIT = { ok: 0, blocked: 1, noAgent: 2 };
+
+const CHECKS_INSTRUCTIONS = `
+Ajoute aussi une ligne résumant les contrôles lancés et leur résultat :
+NAY-CHECKS: <ex. ruff ok · mypy ok · pytest 42 passés>`;
+
+const VERDICT_INSTRUCTIONS = `
+
+---
+Tu es le relecteur, en lecture seule. Sois bref : constats bloquants seulement, chacun avec
+emplacement et correction minimale. Termine par exactement une ligne :
+NAY-VERDICT: PASS      (aucun défaut bloquant)
+NAY-VERDICT: CHANGES   (défauts bloquants listés au-dessus)`;
+
+export const gitOps = {
+  async isRepo(cwd) {
+    try {
+      const { stdout } = await run('git', ['rev-parse', '--is-inside-work-tree'], { cwd });
+      return stdout.trim() === 'true';
+    } catch {
+      return false;
+    }
+  },
+  async status(cwd) {
+    const { stdout } = await run('git', ['status', '--porcelain'], { cwd });
+    return stdout;
+  },
+};
+
+export function parseLine(text = '', key) {
+  return text.match(new RegExp(`^${key}:[ \\t]*(.+)$`, 'm'))?.[1].trim() ?? null;
+}
+
+export function parseVerdict(text) {
+  const verdict = parseLine(text, 'NAY-VERDICT')?.split(/\s+/)[0].toUpperCase();
+  return verdict === 'PASS' ? 'PASS' : 'CHANGES';
+}
+
+function shortError(result) {
+  return (result.error ?? result.status ?? 'échec').split('\n')[0].slice(0, 160);
+}
+
+// Les lignes NAY-* sont des métadonnées : on ne les remonte pas dans les constats.
+function withoutMarkers(text = '') {
+  return text.split('\n').filter((line) => !/^NAY-[A-Z]+:/.test(line)).join('\n').trim();
+}
+
+export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds = 2, execute = runAgent,
+  isAvailable = () => true, delegation, git = gitOps, committer = commitRequest } = {}) {
+  const report = { dev: null, devSkipped: [], commits: [], reviews: [], checks: null, status: 'OK',
+    code: EXIT.ok, detail: null, findings: null };
+  const isGit = await git.isRepo(cwd);
+  const unavailable = new Set();
+  const availability = (agent) => !unavailable.has(agent) && isAvailable(agent);
+  const choose = (role, author) => chooseAgent(role, { author, isAvailable: availability,
+    ...(delegation ? { delegation } : {}) });
+  const stop = (status, code, detail) => Object.assign(report, { status, code, detail });
+
+  // Dev : on passe au suivant tant que l'agent qui a échoué n'a rien modifié.
+  const devPrompt = `${brief}${isGit ? COMMIT_INSTRUCTIONS : ''}${CHECKS_INSTRUCTIONS}`;
+  let dev;
+  for (;;) {
+    let agent;
+    try {
+      ({ agent } = choose('developpeur'));
+    } catch (error) {
+      return stop('AUCUN AGENT', EXIT.noAgent, error.message);
+    }
+    const before = isGit ? await git.status(cwd) : null;
+    const result = await execute(agent, devPrompt, { mode: 'write', cwd, feature, role: 'dev' });
+    if (result.status === 'ok') {
+      dev = result;
+      break;
+    }
+    const touched = isGit ? (await git.status(cwd)) !== before : result.usage?.output > 0;
+    if (touched) {
+      report.dev = agent;
+      return stop('BLOQUÉ', EXIT.blocked, `${agent} a échoué après avoir modifié des fichiers : ${shortError(result)}`);
+    }
+    unavailable.add(agent);
+    report.devSkipped.push({ agent, reason: shortError(result) });
+  }
+  report.dev = dev.agent;
+
+  for (let round = 1; ; round += 1) {
+    report.checks = parseLine(dev.text, 'NAY-CHECKS') ?? report.checks;
+    let target = 'les modifications non committées (`git diff`, `git status`)';
+    if (isGit) {
+      const request = parseCommitRequest(dev.text);
+      if (request) {
+        try {
+          const line = await committer(request, { cwd });
+          report.commits.push(line);
+          target = `le commit ${line.split(' ')[0]} (\`git show ${line.split(' ')[0]}\`)`;
+        } catch (error) {
+          return stop('BLOQUÉ', EXIT.blocked, `Commit impossible : ${error.stderr?.trim() || error.message}`);
+        }
+      } else if (round === 1 && !(await git.status(cwd)).trim()) {
+        return stop('BLOQUÉ', EXIT.blocked, 'Le dev n’a rien modifié ni demandé de commit');
+      }
+    } else {
+      target = 'les fichiers modifiés par le dev';
+    }
+
+    // Revue : en lecture seule, on peut toujours passer au relecteur suivant.
+    const reviewPrompt = `Brief de la tâche relue :\n${brief}\n\nRelis ${target}.${VERDICT_INSTRUCTIONS}`;
+    let review;
+    for (;;) {
+      let agent;
+      try {
+        ({ agent } = choose('relecteur', dev.agent));
+      } catch (error) {
+        return stop('AUCUN AGENT', EXIT.noAgent, error.message);
+      }
+      const result = await execute(agent, reviewPrompt, { mode: 'read', cwd, feature, role: 'relecteur' });
+      if (result.status === 'ok') {
+        review = result;
+        break;
+      }
+      unavailable.add(agent);
+      report.reviews.push({ agent, round, verdict: `sauté (${shortError(result)})` });
+    }
+    const verdict = parseVerdict(review.text);
+    report.reviews.push({ agent: review.agent, round, verdict });
+    if (verdict === 'PASS') return report;
+    if (round >= maxRounds) {
+      report.findings = withoutMarkers(review.text);
+      return stop('DÉFAUTS', EXIT.blocked, `Défauts restants après ${maxRounds} tours de revue`);
+    }
+
+    // Correction : on reprend la conversation du dev quand c'est possible.
+    const fixPrompt = `Retours de revue à corriger (seulement ceux-ci) :\n${withoutMarkers(review.text)}`
+      + `${isGit ? COMMIT_INSTRUCTIONS : ''}${CHECKS_INSTRUCTIONS}`;
+    const fix = await execute(dev.agent, dev.sessionId ? fixPrompt : `${brief}\n\n${fixPrompt}`, {
+      mode: 'write', cwd, feature, role: 'dev',
+      ...(dev.sessionId ? { resume: dev.sessionId, resumedFrom: dev.callId } : {}) });
+    if (fix.status !== 'ok') {
+      report.findings = withoutMarkers(review.text);
+      return stop('BLOQUÉ', EXIT.blocked, `Correction par ${dev.agent} échouée : ${shortError(fix)}`);
+    }
+    dev = { ...fix, agent: dev.agent, sessionId: fix.sessionId ?? dev.sessionId };
+  }
+}
+
+export function formatStory(report) {
+  const skipped = report.devSkipped.length
+    ? ` (sauté : ${report.devSkipped.map(({ agent, reason }) => `${agent} — ${reason}`).join(' ; ')})` : '';
+  const lines = [`Dev : ${report.dev ?? 'aucun'}${skipped}`,
+    `Commit : ${report.commits.length ? report.commits.join(' ; ') : 'aucun'}`,
+    `Revue : ${report.reviews.length
+      ? report.reviews.map(({ agent, round, verdict }) => `${agent} ${verdict} (tour ${round})`).join(' ; ') : 'aucune'}`,
+    `Contrôles : ${report.checks ?? 'non rapportés'}`,
+    `Statut : ${report.status}${report.detail ? ` — ${report.detail}` : ''}`];
+  if (report.findings) lines.push('', 'Constats du relecteur :', report.findings);
+  return `${lines.join('\n')}\n`;
+}
