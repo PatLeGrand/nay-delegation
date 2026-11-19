@@ -32,7 +32,7 @@ export const AGY_SHELL_RETRY = 'Ta session s’est arrêtée parce que tu as lan
 // Tous les droits seulement pour agy en écriture, et seulement dans un worktree Git lié
 // (copie jetable) : jamais dans le dépôt principal ni hors de Git.
 export async function checkSkipPermissions(agent, mode, cwd, git = gitOutput) {
-  if (agent.cli !== 'agy') throw new Error('--skip-permissions n’est prévu que pour les agents agy');
+  if (!['agy', 'codex'].includes(agent.cli)) throw new Error('--skip-permissions n’est prévu que pour les agents agy et codex');
   if (mode !== 'write') throw new Error('--skip-permissions est inutile en lecture seule');
   let gitDir;
   let commonDir;

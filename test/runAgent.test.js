@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runAgent as executeAgent, checkSkipPermissions } from '../src/runAgent.js';
 import * as agyCli from '../src/cli/agy.js';
+import * as codexCli from '../src/cli/codex.js';
 import { appendUsage, readUsage } from '../src/usageLog.js';
 import { findResumableCall, resumeCall } from '../src/resume.js';
 
@@ -319,7 +320,16 @@ test('--skip-permissions : réservé à agy en écriture dans un worktree lié',
   await assert.rejects(checkSkipPermissions(agy, 'write', '/r', main), /pas le dépôt principal/);
   await assert.rejects(checkSkipPermissions(agy, 'write', '/x', async () => { throw new Error('git'); }), /hors Git/);
   await assert.rejects(checkSkipPermissions(agy, 'read', '/w', linked), /lecture seule/);
-  await assert.rejects(checkSkipPermissions({ cli: 'codex' }, 'write', '/w', linked), /agents agy/);
+  await checkSkipPermissions({ cli: 'codex' }, 'write', '/w', linked);
+  await assert.rejects(checkSkipPermissions({ cli: 'claude' }, 'write', '/w', linked), /agents agy et codex/);
+});
+
+test('codex : danger-full-access seulement si demandé, en écriture', () => {
+  const base = { model: 'm', effort: 'medium', cwd: '/w', outputFile: '/o' };
+  const sandbox = (args) => args[args.indexOf('-s') + 1];
+  assert.equal(sandbox(codexCli.buildArgs({ ...base, skipPermissions: true })), 'danger-full-access');
+  assert.equal(sandbox(codexCli.buildArgs(base)), 'workspace-write');
+  assert.equal(sandbox(codexCli.buildArgs({ ...base, mode: 'read', skipPermissions: true })), 'read-only');
 });
 
 test('agy : --dangerously-skip-permissions seulement si demandé, en écriture', () => {

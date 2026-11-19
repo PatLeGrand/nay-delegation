@@ -3,13 +3,14 @@ import { readConfig } from '../config.js';
 import { toolDescriptor } from './events.js';
 import { emptyUsage, failResult } from './usage.js';
 
-export function buildArgs({ model, effort, mode = 'write', cwd, outputFile, resume }) {
+// skipPermissions : sandbox levé en écriture, contrôlé en amont (worktree Git lié uniquement).
+export function buildArgs({ model, effort, mode = 'write', cwd, outputFile, resume, skipPermissions = false }) {
+  const sandbox = mode !== 'write' ? 'read-only' : skipPermissions ? 'danger-full-access' : 'workspace-write';
   if (resume) return ['exec', 'resume', '--json', '--skip-git-repo-check', '-m', model,
     '-c', `model_reasoning_effort=${effort}`, '-c',
-    `sandbox_mode="${mode === 'write' ? 'workspace-write' : 'read-only'}"`, '-o', outputFile, '--', resume, '-'];
+    `sandbox_mode="${sandbox}"`, '-o', outputFile, '--', resume, '-'];
   return ['exec', '--json', '--skip-git-repo-check', '-C', cwd, '-m', model,
-    '-c', `model_reasoning_effort=${effort}`, '-s',
-    mode === 'write' ? 'workspace-write' : 'read-only', '-o', outputFile, '-'];
+    '-c', `model_reasoning_effort=${effort}`, '-s', sandbox, '-o', outputFile, '-'];
 }
 
 export function parseResult(stdout, outputText = '') {
