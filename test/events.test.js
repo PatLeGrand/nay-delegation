@@ -195,6 +195,12 @@ test('Le masquage respecte les segments, les longueurs et la casse des préfixes
   for (const [text, expected] of secrets) assert.equal(maskEvent({ text }, config).text, expected, text);
 });
 
+test('Le champ error est masqué comme les sorties', () => {
+  const secretPatterns = [{ pattern: 'sk-[a-z0-9]+', flags: 'g', replacement: '[masqué]' }];
+  assert.equal(maskEvent({ kind: 'call_end', error: 'stderr : clé sk-abc123 refusée' }, { secretPatterns }).error,
+    'stderr : clé [masqué] refusée');
+});
+
 test('Chaque motif utilise ses propres drapeaux', () => {
   const secretPatterns = [{ pattern: 'secret', flags: 'g', replacement: '[masqué]' }];
   assert.equal(maskEvent({ text: 'SECRET secret secret' }, { secretPatterns }).text, 'SECRET [masqué] [masqué]');

@@ -120,6 +120,13 @@ Contrôles : ruff ok · mypy ok · pytest 42 passés
 Statut : OK
 ```
 
+Le relecteur reçoit le diff dans son prompt (commit ou modifications non committées) : il n'a
+pas besoin de lancer git. Le verdict doit être la dernière ligne de sa réponse.
+
+agy en lecture seule (`--mode plan`) n'exécute pas les commandes shell : Nay ajoute au prompt
+une consigne « sans shell », et si la session s'arrête quand même sur une commande, l'erreur
+le dit (« Shell bloqué en mode plan ») et Nay reprend une fois la session sans shell.
+
 Code de sortie : `0` revue PASS, `1` bloqué ou défauts restants (constats du relecteur
 affichés), `2` aucun agent disponible. `--feature` vaut par défaut le nom du dossier.
 

@@ -258,6 +258,65 @@ test('Une réponse vide est un échec journalisé, même avec un statut SUCCESS'
   }
 });
 
+test('agy en lecture seule reçoit la consigne sans shell', async (t) => {
+  const cwd = await setup(t, ({ child, args }) => {
+    assert.match(args[1], /^brief\n[\s\S]*n'utilise aucune commande shell/);
+    finish(child, '{"status":"SUCCESS","response":"ok"}');
+  });
+  assert.equal((await runAgent('hydrogen', 'brief', { cwd, mode: 'read' })).status, 'ok');
+});
+
+test('agy : un shell bloqué en lecture seule est nommé et repris une fois sans shell', async (t) => {
+  const session = '11111111-1111-4111-8111-111111111111';
+  const calls = [];
+  const cwd = await setup(t, ({ child, args }) => {
+    calls.push(args);
+    if (calls.length === 1) {
+      finish(child, [
+        JSON.stringify({ event: 'init', conversation_id: session }),
+        JSON.stringify({ event: 'step_update', step_update: { step_type: 'tool', step_index: 1, tool_name: 'run_command',
+          state: 'DONE', tool_info: { parameters: { CommandLine: 'ls' }, output: '' } } }),
+        JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: '' } }),
+      ].join('\n'));
+    } else {
+      finish(child, JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'revue faite' } }));
+    }
+  });
+  const result = await runAgent('hydrogen', 'brief', { cwd, mode: 'read' });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.text, 'revue faite');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1][calls[1].indexOf('--conversation') + 1], session);
+  assert.match(calls[1][1], /sans aucune commande shell/);
+  const entries = await readUsage(join(cwd, '.nay/state/usage.jsonl'));
+  assert.match(entries[0].error, /Shell bloqué en mode plan/);
+  assert.equal(entries[1].resumedFrom, entries[0].callId);
+});
+
+test('agy : pas de reprise automatique quand l’appelant impose le callId', async (t) => {
+  let count = 0;
+  const cwd = await setup(t, ({ child }) => {
+    count += 1;
+    finish(child, [
+      JSON.stringify({ event: 'init', conversation_id: '22222222-2222-4222-8222-222222222222' }),
+      JSON.stringify({ event: 'step_update', step_update: { step_type: 'tool', step_index: 1, tool_name: 'run_command',
+        state: 'DONE', tool_info: { parameters: { CommandLine: 'ls' }, output: '' } } }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: '' } }),
+    ].join('\n'));
+  });
+  const result = await runAgent('hydrogen', 'brief', { cwd, mode: 'read', callId: 'impose' });
+  assert.equal(count, 1);
+  assert.equal(result.callId, 'impose');
+  assert.match(result.error, /Shell bloqué en mode plan/);
+});
+
+test('Un identifiant de reprise invalide est refusé sans lancer de processus', async (t) => {
+  const cwd = await setup(t, () => assert.fail('processus interdit'));
+  const result = await runAgent('hydrogen', 'brief', { cwd, mode: 'read', resume: '--dangerously-skip-permissions' });
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /Identifiant de session invalide/);
+});
+
 test('Flux en direct, lignes fragmentées, champs communs et journaux centraux', async (t) => {
   const received = [];
   const root = await mkdtemp(join(tmpdir(), 'nay-central-'));

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { COMMIT_INSTRUCTIONS, commitRequest, parseCommitRequest } from '../src/commit.js';
@@ -35,6 +35,22 @@ test('parseCommitRequest lit le message et les fichiers', () => {
     { message: 'feat(x): ajout', files: ['a.js', 'b/c.js'] });
   assert.equal(parseCommitRequest('NAY-COMMIT: feat: sans fichiers'), null);
   assert.equal(parseCommitRequest('rien'), null);
+  assert.deepEqual(parseCommitRequest('exemple :\nNAY-COMMIT: faux\nNAY-FILES: x\nfin\nNAY-COMMIT: vrai\nNAY-FILES: y'),
+    { message: 'vrai', files: ['y'] });
+});
+
+test('commitRequest refuse un lien symbolique qui sort du dépôt', async () => {
+  const { dir, git } = await repo();
+  const outside = await mkdtemp(join(tmpdir(), 'nay-dehors-'));
+  try {
+    await writeFile(join(outside, 'secret.txt'), 'x\n');
+    await symlink(outside, join(dir, 'lien'));
+    await assert.rejects(commitRequest({ message: 'x', files: ['lien/secret.txt'] }, { cwd: dir }), /hors du dépôt/);
+    assert.equal(git('log', '--oneline').split('\n').length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });
 
 test('commitRequest ne committe que les fichiers annoncés', async () => {

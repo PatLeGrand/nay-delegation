@@ -3,7 +3,8 @@ import childProcess from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { createEventSink } from './eventLog.js';
+import { createEventSink, maskSecrets } from './eventLog.js';
+import { isSessionId } from './session.js';
 import { writeClaudeQuota } from './quota/claude.js';
 import { getAgent, loadEngineConfig, loadEventConfig, repositoryRoot } from './config.js';
 import { appendUsage, readUsage } from './usageLog.js';
@@ -14,6 +15,23 @@ import * as claude from './cli/claude.js';
 
 const adapters = { codex, agy, claude };
 const MS_PER_MINUTE = 60_000;
+
+// En mode plan, agy n'exécute pas les commandes shell : il rend une sortie vide et termine la
+// session. Les agents agy en lecture seule doivent donc se limiter à leurs outils de lecture.
+export const AGY_READ_ONLY_NOTE = `
+
+---
+IMPORTANT : n'utilise aucune commande shell (run_command, ls, git, grep, cat…) : elles sont
+bloquées dans ce mode et arrêtent ta session. Utilise uniquement tes outils de lecture de
+fichiers, de listing de dossiers et de recherche.`;
+
+export const AGY_SHELL_RETRY = 'Ta session s’est arrêtée parce que tu as lancé une commande shell, '
+  + 'bloquée en lecture seule. Reprends la tâche sans aucune commande shell, uniquement avec tes '
+  + 'outils de lecture, de listing et de recherche, puis donne ta réponse complète.';
+
+function maskError(text) {
+  try { return maskSecrets(text, loadEventConfig()); } catch { return text; }
+}
 
 function killProcess(child) {
   if (child.pid === undefined) return;
@@ -70,10 +88,11 @@ async function prepareCall(agent, prompt, options, engine) {
   const directory = await mkdtemp(join(options.cwd, engine.tempDirPrefix));
   try {
     const outputFile = join(directory, 'response.md');
-    let argumentPrompt = prompt;
-    if (agent.cli === 'agy' && agy.requiresBriefFile(prompt, engine.agyPromptMaxBytes)) {
+    const fullPrompt = agent.cli === 'agy' && options.mode === 'read' ? `${prompt}${AGY_READ_ONLY_NOTE}` : prompt;
+    let argumentPrompt = fullPrompt;
+    if (agent.cli === 'agy' && agy.requiresBriefFile(fullPrompt, engine.agyPromptMaxBytes)) {
       const briefFile = join(directory, 'brief.md');
-      await writeFile(briefFile, prompt, { mode: 0o600 });
+      await writeFile(briefFile, fullPrompt, { mode: 0o600 });
       argumentPrompt = `Lis le fichier ${JSON.stringify(briefFile)} et suis ses instructions.`;
     }
     const args = adapters[agent.cli].buildArgs({ ...agent, ...options, prompt: argumentPrompt, outputFile });
@@ -117,7 +136,7 @@ function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, r
   let config;
   try { config = loadEventConfig(); } catch (error) {
     process.stderr.write(`Journal d’événements désactivé : ${error.message}\n`);
-    return { sink: { emit() {} }, onLine(line, agent) {
+    return { sink: { emit() {} }, seen: { lastToolKind: null }, onLine(line, agent) {
       try { onSession(adapters[agent.cli].sessionIdFrom(JSON.parse(line))); } catch {}
     }, flush: async () => {} };
   }
@@ -125,20 +144,41 @@ function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, r
     feature: feature ?? null, role: role ?? null }, resolve(journalRoot, config.directory), config, onEvent);
   sink.emit({ kind: 'call_start', mode, resumedFrom });
   let quotaPending = Promise.resolve();
+  const seen = { lastToolKind: null };
   function onLine(line, agent) {
     try {
       const raw = JSON.parse(line);
       onSession(adapters[agent.cli].sessionIdFrom(raw));
-      for (const event of adapters[agent.cli].toEvents(raw, config)) sink.emit(event);
+      for (const event of adapters[agent.cli].toEvents(raw, config)) {
+        if (event.kind === 'tool_end') seen.lastToolKind = event.tool.kind;
+        sink.emit(event);
+      }
       if (agent.cli === 'claude' && raw?.type === 'rate_limit_event') {
         quotaPending = quotaPending.then(() => writeClaudeQuota(raw, undefined, journalRoot)).catch(() => {});
       }
     } catch { /* Les sorties de diagnostic ne sont pas des événements. */ }
   }
-  return { sink, onLine, flush: () => Promise.all([sink.flush(), quotaPending]) };
+  return { sink, onLine, seen, flush: () => Promise.all([sink.flush(), quotaPending]) };
 }
 
-export async function runAgent(name, prompt, { mode = 'write', cwd = process.cwd(), feature, role, onEvent, journalRoot = repositoryRoot(),
+export async function runAgent(name, prompt, options = {}) {
+  const result = await runAgentOnce(name, prompt, options);
+  // Une seule seconde chance : reprendre la session en rappelant l'interdiction du shell.
+  // Pas de reprise quand l'appelant impose le callId (interface) : il suit cet appel précis et
+  // verrait l'échec sans la seconde tentative ; l'erreur explicite lui permet de reprendre.
+  if (!result.shellBlocked || options.shellRetried || options.callId || !isSessionId(result.sessionId)) {
+    return clean(result);
+  }
+  const retry = await runAgentOnce(name, AGY_SHELL_RETRY, { ...options, resume: result.sessionId,
+    resumedFrom: result.callId, shellRetried: true });
+  return clean(retry);
+}
+
+function clean({ shellBlocked, ...result }) {
+  return result;
+}
+
+async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(), feature, role, onEvent, journalRoot = repositoryRoot(),
   resume, resumedFrom = null, callId = randomUUID(), usagePath } = {}) {
   const started = performance.now();
   const engine = loadEngineConfig();
@@ -160,6 +200,8 @@ export async function runAgent(name, prompt, { mode = 'write', cwd = process.cwd
       usageBaseline = parent?.usageCumulative ?? parent?.usage ?? emptyUsage();
     }
     if (!['write', 'read'].includes(mode)) throw new Error(`Mode inconnu : ${mode}`);
+    // Un identifiant commençant par « - » serait lu comme une option par le CLI.
+    if (resume !== undefined && !isSessionId(resume)) throw new Error(`Identifiant de session invalide : ${resume}`);
     if (typeof prompt !== 'string') throw new Error('Le prompt doit être une chaîne de caractères');
     call = await prepareCall(agent, prompt, { mode, cwd: workDir, resume }, engine);
     const execution = await execute(engine[`${agent.cli}Bin`], call.args,
@@ -174,7 +216,11 @@ export async function runAgent(name, prompt, { mode = 'write', cwd = process.cwd
       failure = `${failure}; ${error.message}`;
     }
     // Un agent qui s'arrête sans rien répondre n'a pas fait son travail : ne pas le compter comme réussi.
-    if (!failure && !result.text.trim()) failure = 'Réponse vide de l’agent';
+    if (!failure && !result.text.trim()) {
+      result.shellBlocked = agent.cli === 'agy' && mode === 'read' && events.seen.lastToolKind === 'command';
+      failure = result.shellBlocked ? 'Shell bloqué en mode plan (agy) : réponse vide après une commande shell'
+        : 'Réponse vide de l’agent';
+    }
     if (failure) result.error = failure;
     else result.status = 'ok';
   } catch (error) {
@@ -194,12 +240,13 @@ export async function runAgent(name, prompt, { mode = 'write', cwd = process.cwd
       result.usage = subtractUsage(result.usageCumulative, usageBaseline);
     }
     result.durationMs = Math.round(performance.now() - started);
+    if (result.error) result.error = maskError(result.error);
     events.sink.emit({ kind: 'call_end', sessionId: result.sessionId, status: result.status, usage: result.usage, durationMs: result.durationMs,
       ...(result.usageCumulative ? { usageCumulative: result.usageCumulative } : {}),
       ...(result.error ? { error: result.error } : {}) });
     await events.flush();
     // Le journal conserve les métadonnées, sans dupliquer les réponses des agents.
-    const { text, ...entry } = result;
+    const { text, shellBlocked, ...entry } = result;
     await appendUsage({ ...entry, feature, role, resumedFrom, cwd: workDir }, resolve(journalRoot, usagePath ?? engine.usageLogPath));
   }
   return result;

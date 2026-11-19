@@ -16,13 +16,17 @@ export function parseResult(stdout, outputText = '') {
   const usage = emptyUsage();
   let failure;
   let completed = false;
+  let parsed = 0;
+  let parseError;
   for (const line of stdout.split('\n').filter((line) => line.trim())) {
     let event;
     try {
       event = JSON.parse(line);
+      parsed += 1;
     } catch (error) {
-      usage.total = usage.input + usage.output;
-      throw Object.assign(error, { result: { text: outputText, usage } });
+      // Une ligne de diagnostic sur stdout ne doit pas faire échouer un appel valide.
+      parseError ??= error;
+      continue;
     }
     if (event.type === 'turn.failed' || event.type === 'error') {
       failure = event.error?.message || event.message || 'Échec Codex';
@@ -38,6 +42,7 @@ export function parseResult(stdout, outputText = '') {
   // Le cache est inclus dans input, et la réflexion dans output chez Codex.
   usage.total = usage.input + usage.output;
   const result = { text: outputText, usage };
+  if (!parsed && parseError) throw Object.assign(parseError, { result });
   if (failure) failResult(failure, result);
   if (!completed) failResult('Réponse Codex incomplète : aucun événement turn.completed reçu', result);
   return result;

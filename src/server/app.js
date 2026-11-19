@@ -141,15 +141,25 @@ async function startResume(resumedFrom, body, context) {
   if (typeof body?.message !== 'string' || !body.message.trim()) throw httpError(400, 'Message vide');
   const { dataRoot, usagePath, monitorConfig, resumer, resuming } = context;
   const options = { journalRoot: dataRoot, usagePath };
-  const entry = await findResumableCall(resumedFrom, options);
-  const call = await readCall(dataRoot, monitorConfig.eventsDir, resumedFrom);
-  if (!call?.events.some((event) => event.kind === 'call_end')) throw httpError(409, 'Appel non terminé');
-  const sessionKey = entry.sessionId;
-  if (resuming.has(sessionKey)) throw httpError(409, 'Reprise de cette session déjà en cours');
-  resuming.add(sessionKey);
+  // Verrou posé avant le premier await : deux requêtes simultanées sur le même appel ne
+  // peuvent plus passer toutes les deux.
+  const callKey = `appel:${resumedFrom}`;
+  if (resuming.has(callKey)) throw httpError(409, 'Reprise de cette session déjà en cours');
+  resuming.add(callKey);
+  let sessionKey;
+  try {
+    const entry = await findResumableCall(resumedFrom, options);
+    const call = await readCall(dataRoot, monitorConfig.eventsDir, resumedFrom);
+    if (!call?.events.some((event) => event.kind === 'call_end')) throw httpError(409, 'Appel non terminé');
+    if (resuming.has(entry.sessionId)) throw httpError(409, 'Reprise de cette session déjà en cours');
+    sessionKey = entry.sessionId;
+    resuming.add(sessionKey);
+  } finally {
+    if (!sessionKey) resuming.delete(callKey);
+  }
   const callId = randomUUID();
   Promise.resolve().then(() => resumer(resumedFrom, body.message, { ...options, callId }))
-    .catch(() => {})
-    .finally(() => resuming.delete(sessionKey));
+    .catch((error) => process.stderr.write(`Reprise ${resumedFrom} échouée : ${error.message}\n`))
+    .finally(() => { resuming.delete(sessionKey); resuming.delete(callKey); });
   return { callId, resumedFrom };
 }

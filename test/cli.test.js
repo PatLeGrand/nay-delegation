@@ -77,10 +77,11 @@ for (const [name, cli] of Object.entries({ codex, agy, claude })) {
   });
 }
 
-test('Codex conserve les tours terminés si la sortie suivante est tronquée', () => {
-  assert.throws(() => codex.parseResult(
-    '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}\n{"type":'),
-  (error) => error instanceof SyntaxError && error.result.usage.total === 15);
+test('Codex conserve les tours terminés et ignore une ligne non JSON', () => {
+  const result = codex.parseResult(
+    'diagnostic hors JSON\n{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}\n{"type":', 'ok');
+  assert.equal(result.usage.total, 15);
+  assert.equal(result.text, 'ok');
 });
 
 for (const mode of ['read', 'write']) {

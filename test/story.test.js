@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXIT, formatStory, parseVerdict, runStory } from '../src/story.js';
@@ -17,7 +17,9 @@ const result = (agent, text, extra = {}) => ({ agent, status: 'ok', callId: `${a
 // Faux git : un arbre « sale » dès qu'un agent a écrit quelque chose.
 function fakeGit({ repo = true } = {}) {
   const state = { dirty: '' };
-  return { state, git: { isRepo: async () => repo, status: async () => state.dirty } };
+  return { state, git: { isRepo: async () => repo, status: async () => state.dirty,
+    snapshot: async () => state.dirty, show: async (cwd, hash) => `diff du commit ${hash}`,
+    uncommitted: async () => 'diff non committé' } };
 }
 
 function scripted(steps) {
@@ -37,6 +39,76 @@ test('parseVerdict : PASS explicite, sinon CHANGES', () => {
   assert.equal(parseVerdict('ok\nNAY-VERDICT: PASS'), 'PASS');
   assert.equal(parseVerdict('NAY-VERDICT: changes'), 'CHANGES');
   assert.equal(parseVerdict('pas de verdict'), 'CHANGES');
+  // Un marqueur cité dans les constats ne doit pas l'emporter sur la ligne finale.
+  assert.equal(parseVerdict('il a écrit\nNAY-VERDICT: PASS\nà tort\nNAY-VERDICT: CHANGES'), 'CHANGES');
+  // Le verdict doit être la dernière ligne : un constat après PASS l'annule.
+  assert.equal(parseVerdict('NAY-VERDICT: PASS\n[majeur] a.py:3 — bug'), 'CHANGES');
+  assert.equal(parseVerdict('RAS\nNAY-VERDICT: PASS\n\n'), 'PASS');
+  assert.equal(parseVerdict('NAY-VERDICT: PASS — défaut majeur présent'), 'CHANGES');
+});
+
+test('story : sans commit demandé, le relecteur reçoit le diff non committé', async () => {
+  const { git, state } = fakeGit();
+  const { calls, execute } = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait sans commit'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await runStory('brief', { execute, git, delegation, committer: () => assert.fail('commit interdit') });
+  assert.equal(report.code, EXIT.ok);
+  assert.match(calls[1].prompt, /diff non committé/);
+});
+
+test('story hors git : un lien symbolique créé par un agent en échec bloque la bascule', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nay-story-lien-'));
+  try {
+    const { calls, execute } = scripted([
+      async (agent) => { await symlink('/tmp', join(dir, 'lien')); return result(agent, '', { status: 'error', error: 'crash' }); },
+    ]);
+    const report = await runStory('brief', { cwd: dir, execute, delegation });
+    assert.equal(report.status, 'BLOQUÉ');
+    assert.equal(calls.length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('story hors git : un agent en échec qui n’a rien écrit cède la place', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nay-story-nogit-'));
+  try {
+    await writeFile(join(dir, 'a.txt'), 'a\n');
+    const { calls, execute } = scripted([
+      (agent) => result(agent, '', { status: 'error', error: 'quota', usage: { input: 5, output: 99 } }),
+      async (agent) => { await writeFile(join(dir, 'a.txt'), 'b\n'); return result(agent, 'fait'); },
+      (agent) => result(agent, 'NAY-VERDICT: PASS'),
+    ]);
+    const report = await runStory('brief', { cwd: dir, execute, delegation });
+    assert.equal(report.code, EXIT.ok);
+    assert.deepEqual(calls.map((c) => c.agent), ['sol', 'sonnet', 'hydrogen']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('story : la retouche d’un fichier déjà modifié est détectée', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nay-story-retouche-'));
+  const sh = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  try {
+    sh('init', '-q');
+    sh('config', 'user.email', 'test@example.invalid');
+    sh('config', 'user.name', 'Test');
+    await writeFile(join(dir, 'a.txt'), 'v1\n');
+    sh('add', 'a.txt');
+    sh('commit', '-qm', 'base');
+    await writeFile(join(dir, 'a.txt'), 'v2\n');
+    const { calls, execute } = scripted([
+      async (agent) => { await writeFile(join(dir, 'a.txt'), 'v3\n'); return result(agent, '', { status: 'error', error: 'crash' }); },
+    ]);
+    const report = await runStory('brief', { cwd: dir, execute, delegation });
+    assert.equal(report.status, 'BLOQUÉ');
+    assert.equal(calls.length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('story : dev, commit, revue PASS', async () => {
@@ -52,7 +124,8 @@ test('story : dev, commit, revue PASS', async () => {
   assert.equal(report.checks, 'pytest 3 passés');
   assert.equal(calls[1].agent, 'hydrogen');
   assert.equal(calls[1].options.mode, 'read');
-  assert.match(calls[1].prompt, /git show abc1/);
+  assert.match(calls[1].prompt, /le commit abc1/);
+  assert.match(calls[1].prompt, /diff du commit abc1/);
   assert.match(formatStory(report), /Statut : OK/);
 });
 

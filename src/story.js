@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readdir, readFile, readlink } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { COMMIT_INSTRUCTIONS, commitRequest, parseCommitRequest } from './commit.js';
+import { COMMIT_INSTRUCTIONS, commitRequest, lastMarker, parseCommitRequest } from './commit.js';
 import { chooseAgent } from './delegation.js';
 import { runAgent } from './runAgent.js';
 
 const run = promisify(execFile);
+const MAX_DIFF_CHARS = 60_000;
 
 // Codes de sortie de `nay story`.
 export const EXIT = { ok: 0, blocked: 1, noAgent: 2 };
@@ -21,6 +25,47 @@ emplacement et correction minimale. Termine par exactement une ligne :
 NAY-VERDICT: PASS      (aucun défaut bloquant)
 NAY-VERDICT: CHANGES   (défauts bloquants listés au-dessus)`;
 
+const MAX_BUFFER = 64 * 1024 * 1024;
+const IGNORED_DIRS = new Set(['.git', 'node_modules']);
+
+async function hashFile(path) {
+  try {
+    return createHash('sha256').update(await readFile(path)).digest('hex');
+  } catch {
+    return 'illisible';
+  }
+}
+
+// Empreinte hors git : chemins et contenus des fichiers, cibles des liens symboliques.
+// Les dossiers ignorés sont écartés avant d'y descendre ; un dossier illisible compte comme tel.
+async function hashTree(root) {
+  const hash = createHash('sha256');
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      hash.update(`${relative(root, dir)}\0dossier illisible\n`);
+      return;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(dir, entry.name);
+      const rel = relative(root, path);
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIRS.has(entry.name)) await walk(path);
+      } else if (entry.isSymbolicLink()) {
+        let target;
+        try { target = await readlink(path); } catch { target = 'illisible'; }
+        hash.update(`${rel}\0lien\0${target}\n`);
+      } else if (entry.isFile()) {
+        hash.update(`${rel}\0${await hashFile(path)}\n`);
+      }
+    }
+  }
+  await walk(root);
+  return hash.digest('hex');
+}
+
 export const gitOps = {
   async isRepo(cwd) {
     try {
@@ -34,14 +79,45 @@ export const gitOps = {
     const { stdout } = await run('git', ['status', '--porcelain'], { cwd });
     return stdout;
   },
+  // Empreinte du contenu de l'arbre : détecte aussi la retouche d'un fichier déjà modifié.
+  async snapshot(cwd, isGit) {
+    if (!isGit) return hashTree(cwd);
+    const { stdout: diff } = await run('git', ['diff', 'HEAD', '--binary'], { cwd, maxBuffer: MAX_BUFFER });
+    const { stdout: untracked } = await run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd });
+    const hash = createHash('sha256').update(diff);
+    for (const file of untracked.split('\0').filter(Boolean).sort()) {
+      hash.update(`${file}\0${await hashFile(join(cwd, file))}\n`);
+    }
+    return hash.digest('hex');
+  },
+  // Diff fourni au relecteur : il n'a pas à lancer git (le shell est bloqué chez agy en lecture seule).
+  async show(cwd, commit, maxChars) {
+    const { stdout } = await run('git', ['show', '--stat', '--patch', '--format=%h %s', commit],
+      { cwd, maxBuffer: MAX_BUFFER });
+    return truncate(stdout, maxChars);
+  },
+  // Modifications non committées : diff des fichiers suivis et liste des nouveaux fichiers.
+  async uncommitted(cwd, maxChars) {
+    const { stdout: diff } = await run('git', ['diff', 'HEAD', '--stat', '--patch'], { cwd, maxBuffer: MAX_BUFFER });
+    const { stdout: untracked } = await run('git', ['ls-files', '--others', '--exclude-standard'], { cwd });
+    // La liste des nouveaux fichiers reste entière : seul le diff est tronqué.
+    const added = untracked.trim() ? `\n\nNouveaux fichiers non suivis (à ouvrir) :\n${untracked.trim()}` : '';
+    return `${truncate(diff, maxChars)}${added}`;
+  },
 };
 
-export function parseLine(text = '', key) {
-  return text.match(new RegExp(`^${key}:[ \\t]*(.+)$`, 'm'))?.[1].trim() ?? null;
+function truncate(text, maxChars) {
+  return text.length > maxChars
+    ? `${text.slice(0, maxChars)}\n[… tronqué à ${maxChars} caractères : ouvre les fichiers pour la suite]`
+    : text;
 }
 
-export function parseVerdict(text) {
-  const verdict = parseLine(text, 'NAY-VERDICT')?.split(/\s+/)[0].toUpperCase();
+export const parseLine = lastMarker;
+
+// Le verdict doit être la dernière ligne non vide ; toute autre forme vaut CHANGES.
+export function parseVerdict(text = '') {
+  const last = text.trim().split('\n').at(-1)?.trim() ?? '';
+  const verdict = last.match(/^NAY-VERDICT:[ \t]*(PASS|CHANGES)[ \t]*$/i)?.[1].toUpperCase();
   return verdict === 'PASS' ? 'PASS' : 'CHANGES';
 }
 
@@ -75,13 +151,13 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
     } catch (error) {
       return stop('AUCUN AGENT', EXIT.noAgent, error.message);
     }
-    const before = isGit ? await git.status(cwd) : null;
+    const before = await git.snapshot(cwd, isGit);
     const result = await execute(agent, devPrompt, { mode: 'write', cwd, feature, role: 'dev' });
     if (result.status === 'ok') {
       dev = result;
       break;
     }
-    const touched = isGit ? (await git.status(cwd)) !== before : result.usage?.output > 0;
+    const touched = (await git.snapshot(cwd, isGit)) !== before;
     if (touched) {
       report.dev = agent;
       return stop('BLOQUÉ', EXIT.blocked, `${agent} a échoué après avoir modifié des fichiers : ${shortError(result)}`);
@@ -93,19 +169,24 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
 
   for (let round = 1; ; round += 1) {
     report.checks = parseLine(dev.text, 'NAY-CHECKS') ?? report.checks;
-    let target = 'les modifications non committées (`git diff`, `git status`)';
+    let target = 'les fichiers modifiés et non committés du dossier';
     if (isGit) {
       const request = parseCommitRequest(dev.text);
       if (request) {
         try {
           const line = await committer(request, { cwd });
           report.commits.push(line);
-          target = `le commit ${line.split(' ')[0]} (\`git show ${line.split(' ')[0]}\`)`;
+          const hash = line.split(' ')[0];
+          target = `le commit ${hash}, dont voici le diff complet (ouvre les fichiers si tu as besoin `
+            + `de plus de contexte) :\n\n\`\`\`diff\n${await git.show(cwd, hash, MAX_DIFF_CHARS)}\n\`\`\``;
         } catch (error) {
           return stop('BLOQUÉ', EXIT.blocked, `Commit impossible : ${error.stderr?.trim() || error.message}`);
         }
       } else if (round === 1 && !(await git.status(cwd)).trim()) {
         return stop('BLOQUÉ', EXIT.blocked, 'Le dev n’a rien modifié ni demandé de commit');
+      } else {
+        target = `les modifications non committées, dont voici le diff (ouvre les fichiers si tu as `
+          + `besoin de plus de contexte) :\n\n\`\`\`diff\n${await git.uncommitted(cwd, MAX_DIFF_CHARS)}\n\`\`\``;
       }
     } else {
       target = 'les fichiers modifiés par le dev';

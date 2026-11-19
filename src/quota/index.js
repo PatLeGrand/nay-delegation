@@ -39,11 +39,12 @@ export function isAgentAvailable(agentName, quotas, config) {
   if (!agent) return { available: true, reason: `Agent inconnu : ${agentName}` };
   const quota = quotas[agent.cli];
   if (!quota || quota.status !== 'ok') return { available: true, reason: quota?.reason ?? 'Quota inconnu' };
-  const specific = config.thresholds[agentName];
+  const specific = config.thresholds?.[agentName];
   for (const window of quota.windows) {
     if (window.scope && window.scope !== agentName) continue;
-    const threshold = specific && (!specific.window || specific.window === window.label) ? specific : config.thresholds.default;
-    if (remainingPct(window) < threshold.minRemainingPct) {
+    const threshold = specific && (!specific.window || specific.window === window.label) ? specific : config.thresholds?.default;
+    // Sans seuil configuré (quotas.json illisible), on ne bloque pas plutôt que de planter.
+    if (remainingPct(window) < (threshold?.minRemainingPct ?? 0)) {
       return { available: false, reason: `${window.label}${window.scope ? ` ${window.scope}` : ''} : ${remainingPct(window)} % restants` };
     }
   }
