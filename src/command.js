@@ -8,6 +8,7 @@ import { loadMonitorConfig } from './monitor/config.js';
 import { reduceEvents, latestEventsFile } from './monitor/readEvents.js';
 import { formatReport } from './monitor/report.js';
 import { resumeCall } from './resume.js';
+import { COMMIT_INSTRUCTIONS, commitRequest, parseCommitRequest } from './commit.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
 import { readConfig, repositoryRoot } from './config.js';
@@ -16,8 +17,8 @@ import { readQuotas, isAgentAvailable, quotaAgentConfig } from './quota/index.js
 import { remainingPct } from './quota/common.js';
 
 const USAGE = `Usage :
-  nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>]
-  nay resume <callId> <brief.md|-> [--cwd <dossier>]
+  nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit]
+  nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
   nay check-config
   nay quota
@@ -94,20 +95,22 @@ async function readStdin(stream) {
 }
 
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
-  errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now } = {}) {
+  errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
+  committer = commitRequest } = {}) {
   try {
     if (args[0] === 'ui') {
       if (args.length !== 1) throw new Error(USAGE);
       await startServer({ root: NAY_ROOT, dataRoot: repositoryRoot(), output, quotasReader, now });
       return 0;
     }
-    if (args[0] === 'resume') return await resumeCommand(args.slice(1), { input, output, errorOutput, resumer });
+    if (args[0] === 'resume') return await resumeCommand(args.slice(1), { input, output, errorOutput, resumer, committer });
     if (args[0] === 'status') return await statusCommand(args.slice(1), output, now);
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
       'read-only': { type: 'boolean', default: false },
       feature: { type: 'string' }, role: { type: 'string' }, cwd: { type: 'string' },
+      commit: { type: 'boolean', default: false },
     } });
     const [command, agent, brief] = positionals;
     if (command === 'quota' && positionals.length === 1 && args.length === 1) {
@@ -115,15 +118,36 @@ export async function runCommand(args, { input = process.stdin, output = process
       return 0;
     }
     if (command !== 'run' || positionals.length !== 3) throw new Error(USAGE);
-    const prompt = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
+    if (values.commit && values['read-only']) throw new Error('--commit est incompatible avec --read-only');
+    const briefText = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
+    const prompt = values.commit ? `${briefText}${COMMIT_INSTRUCTIONS}` : briefText;
     const result = await execute(agent, prompt, { mode: values['read-only'] ? 'read' : 'write',
       cwd: values.cwd, feature: values.feature, role: values.role });
-    printResult(result, output);
-    if (result.status === 'ok') return 0;
-    errorOutput.write(`${result.error ?? result.status}\n`);
-    return 1;
+    return await finish(result, { commit: values.commit, cwd: values.cwd, output, errorOutput, committer });
   } catch (error) {
     errorOutput.write(`${error.message}\n`);
+    return 1;
+  }
+}
+
+// Après un appel réussi avec --commit, Nay committe hors sandbox les fichiers annoncés par l'agent.
+async function finish(result, { commit, cwd, output, errorOutput, committer }) {
+  printResult(result, output);
+  if (result.status !== 'ok') {
+    errorOutput.write(`${result.error ?? result.status}\n`);
+    return 1;
+  }
+  if (!commit) return 0;
+  const request = parseCommitRequest(result.text);
+  if (!request) {
+    output.write('Commit : aucun (pas de lignes NAY-COMMIT / NAY-FILES)\n');
+    return 0;
+  }
+  try {
+    output.write(`Commit : ${await committer(request, { cwd: cwd ?? process.cwd() })}\n`);
+    return 0;
+  } catch (error) {
+    errorOutput.write(`Commit : échec — ${error.stderr?.trim() || error.message}\n`);
     return 1;
   }
 }
@@ -151,15 +175,13 @@ function printQuotas(quotas, config, output) {
   if (unavailable.length) output.write(`Agents indisponibles : ${unavailable.map(([name, result]) => `${name} (${result.reason})`).join(', ')}\n`);
 }
 
-async function resumeCommand(args, { input, output, errorOutput, resumer }) {
+async function resumeCommand(args, { input, output, errorOutput, resumer, committer }) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true,
-    options: { cwd: { type: 'string' } } });
+    options: { cwd: { type: 'string' }, commit: { type: 'boolean', default: false } } });
   if (positionals.length !== 2) throw new Error(USAGE);
   const [callId, brief] = positionals;
-  const prompt = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
+  const text = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
+  const prompt = values.commit ? `${text}${COMMIT_INSTRUCTIONS}` : text;
   const result = await resumer(callId, prompt, { cwd: values.cwd });
-  printResult(result, output);
-  if (result.status === 'ok') return 0;
-  errorOutput.write(`${result.error ?? result.status}\n`);
-  return 1;
+  return finish(result, { commit: values.commit, cwd: result.cwd ?? values.cwd, output, errorOutput, committer });
 }

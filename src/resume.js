@@ -14,9 +14,12 @@ export async function findResumableCall(callId, { journalRoot = repositoryRoot()
 
 export async function resumeCall(callId, prompt, { execute = runAgent, ...options } = {}) {
   const entry = await findResumableCall(callId, options);
-  return execute(entry.agent, prompt, { mode: entry.mode, feature: entry.feature, role: entry.role,
-    cwd: options.cwd ?? entry.cwd, resume: entry.sessionId, resumedFrom: callId,
+  const cwd = options.cwd ?? entry.cwd;
+  // Le dossier de travail est renvoyé pour que `nay resume --commit` committe au bon endroit.
+  const result = await execute(entry.agent, prompt, { mode: entry.mode, feature: entry.feature, role: entry.role,
+    cwd, resume: entry.sessionId, resumedFrom: callId,
     ...(options.callId ? { callId: options.callId } : {}),
     ...(options.journalRoot ? { journalRoot: options.journalRoot } : {}),
     ...(options.usagePath !== undefined ? { usagePath: options.usagePath } : {}) });
+  return cwd === undefined ? result : { ...result, cwd };
 }
