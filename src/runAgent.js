@@ -29,6 +29,30 @@ export const AGY_SHELL_RETRY = 'Ta session s’est arrêtée parce que tu as lan
   + 'bloquée en lecture seule. Reprends la tâche sans aucune commande shell, uniquement avec tes '
   + 'outils de lecture, de listing et de recherche, puis donne ta réponse complète.';
 
+// Tous les droits seulement pour agy en écriture, et seulement dans un worktree Git lié
+// (copie jetable) : jamais dans le dépôt principal ni hors de Git.
+export async function checkSkipPermissions(agent, mode, cwd, git = gitOutput) {
+  if (agent.cli !== 'agy') throw new Error('--skip-permissions n’est prévu que pour les agents agy');
+  if (mode !== 'write') throw new Error('--skip-permissions est inutile en lecture seule');
+  let gitDir;
+  let commonDir;
+  try {
+    [gitDir, commonDir] = (await git(['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'], cwd))
+      .trim().split('\n');
+  } catch {
+    throw new Error('--skip-permissions exige un worktree Git lié (dossier hors Git)');
+  }
+  if (!gitDir || gitDir === commonDir) {
+    throw new Error('--skip-permissions exige un worktree Git lié, pas le dépôt principal');
+  }
+}
+
+function gitOutput(args, cwd) {
+  return new Promise((resolveRun, reject) => {
+    childProcess.execFile('git', args, { cwd }, (error, stdout) => (error ? reject(error) : resolveRun(stdout)));
+  });
+}
+
 function maskError(text) {
   try { return maskSecrets(text, loadEventConfig()); } catch { return text; }
 }
@@ -179,7 +203,7 @@ function clean({ shellBlocked, ...result }) {
 }
 
 async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(), feature, role, onEvent, journalRoot = repositoryRoot(),
-  resume, resumedFrom = null, callId = randomUUID(), usagePath, effort } = {}) {
+  resume, resumedFrom = null, callId = randomUUID(), usagePath, effort, skipPermissions = false } = {}) {
   const started = performance.now();
   const engine = loadEngineConfig();
   const workDir = resolve(cwd);
@@ -203,7 +227,8 @@ async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(),
     // Un identifiant commençant par « - » serait lu comme une option par le CLI.
     if (resume !== undefined && !isSessionId(resume)) throw new Error(`Identifiant de session invalide : ${resume}`);
     if (typeof prompt !== 'string') throw new Error('Le prompt doit être une chaîne de caractères');
-    call = await prepareCall(agent, prompt, { mode, cwd: workDir, resume }, engine);
+    if (skipPermissions) await checkSkipPermissions(agent, mode, workDir);
+    call = await prepareCall(agent, prompt, { mode, cwd: workDir, resume, skipPermissions }, engine);
     const execution = await execute(engine[`${agent.cli}Bin`], call.args,
       { cwd: workDir, input: call.input, timeoutMin: agent.timeoutMin, onLine: (line) => events.onLine(line, agent) });
     result.status = execution.timedOut ? 'timeout' : 'error';

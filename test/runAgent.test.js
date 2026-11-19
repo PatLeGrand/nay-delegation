@@ -6,7 +6,8 @@ import { PassThrough, Writable } from 'node:stream';
 import { mkdtemp, readdir, readFile, rm, writeFile, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runAgent as executeAgent } from '../src/runAgent.js';
+import { runAgent as executeAgent, checkSkipPermissions } from '../src/runAgent.js';
+import * as agyCli from '../src/cli/agy.js';
 import { appendUsage, readUsage } from '../src/usageLog.js';
 import { findResumableCall, resumeCall } from '../src/resume.js';
 
@@ -308,6 +309,24 @@ test('agy : pas de reprise automatique quand l’appelant impose le callId', asy
   assert.equal(count, 1);
   assert.equal(result.callId, 'impose');
   assert.match(result.error, /Shell bloqué en mode plan/);
+});
+
+test('--skip-permissions : réservé à agy en écriture dans un worktree lié', async () => {
+  const agy = { cli: 'agy' };
+  const linked = async () => '/r/.git/worktrees/w\n/r/.git\n';
+  const main = async () => '/r/.git\n/r/.git\n';
+  await checkSkipPermissions(agy, 'write', '/w', linked);
+  await assert.rejects(checkSkipPermissions(agy, 'write', '/r', main), /pas le dépôt principal/);
+  await assert.rejects(checkSkipPermissions(agy, 'write', '/x', async () => { throw new Error('git'); }), /hors Git/);
+  await assert.rejects(checkSkipPermissions(agy, 'read', '/w', linked), /lecture seule/);
+  await assert.rejects(checkSkipPermissions({ cli: 'codex' }, 'write', '/w', linked), /agents agy/);
+});
+
+test('agy : --dangerously-skip-permissions seulement si demandé, en écriture', () => {
+  const base = { model: 'm', effort: 'medium', prompt: 'p', timeoutMin: 1 };
+  assert.ok(agyCli.buildArgs({ ...base, skipPermissions: true }).includes('--dangerously-skip-permissions'));
+  assert.ok(!agyCli.buildArgs(base).includes('--dangerously-skip-permissions'));
+  assert.ok(!agyCli.buildArgs({ ...base, mode: 'read', skipPermissions: true }).includes('--dangerously-skip-permissions'));
 });
 
 test('Un identifiant de reprise invalide est refusé sans lancer de processus', async (t) => {

@@ -7,10 +7,12 @@ export function requiresBriefFile(prompt, maxBytes) {
   return prompt.startsWith('-') || Buffer.byteLength(prompt, 'utf8') > maxBytes;
 }
 
-export function buildArgs({ model, effort, prompt, timeoutMin, mode = 'write', resume }) {
+// skipPermissions : en écriture seulement, et contrôlé en amont (worktree Git lié uniquement).
+export function buildArgs({ model, effort, prompt, timeoutMin, mode = 'write', resume, skipPermissions = false }) {
   return ['-p', prompt, '--model', model.replaceAll('{effort}', effort),
     '--output-format', 'stream-json', '--print-timeout', `${timeoutMin}m`,
-    '--mode', mode === 'write' ? 'accept-edits' : 'plan', ...(resume ? ['--conversation', resume] : [])];
+    '--mode', mode === 'write' ? 'accept-edits' : 'plan', ...(resume ? ['--conversation', resume] : []),
+    ...(skipPermissions && mode === 'write' ? ['--dangerously-skip-permissions'] : [])];
 }
 
 export function parseResult(stdout) {

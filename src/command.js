@@ -19,6 +19,7 @@ import { remainingPct } from './quota/common.js';
 
 const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
+      [--skip-permissions]   (agy en écriture, worktree Git lié uniquement)
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
   nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
@@ -131,6 +132,7 @@ export async function runCommand(args, { input = process.stdin, output = process
       'read-only': { type: 'boolean', default: false },
       feature: { type: 'string' }, role: { type: 'string' }, cwd: { type: 'string' },
       commit: { type: 'boolean', default: false }, effort: { type: 'string' },
+      'skip-permissions': { type: 'boolean', default: false },
     } });
     const [command, agent, brief] = positionals;
     if (command === 'quota' && positionals.length === 1 && args.length === 1) {
@@ -143,7 +145,8 @@ export async function runCommand(args, { input = process.stdin, output = process
     const prompt = values.commit ? `${briefText}${COMMIT_INSTRUCTIONS}` : briefText;
     const result = await execute(agent, prompt, { mode: values['read-only'] ? 'read' : 'write',
       cwd: values.cwd, feature: values.feature, role: values.role,
-      ...(values.effort ? { effort: values.effort } : {}) });
+      ...(values.effort ? { effort: values.effort } : {}),
+      ...(values['skip-permissions'] ? { skipPermissions: true } : {}) });
     return await finish(result, { commit: values.commit, cwd: values.cwd, output, errorOutput, committer });
   } catch (error) {
     errorOutput.write(`${error.message}\n`);
