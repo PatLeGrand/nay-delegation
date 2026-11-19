@@ -1,6 +1,6 @@
 import { API, DELEGATION_ROLE_LABELS } from '../config.js';
 import { ApiError, getJson, putJson } from '../api.js';
-import { el, emptyMessage, replaceContent } from '../dom.js';
+import { el, emptyMessage, replaceContent, loadingState, errorState } from '../dom.js';
 
 let draft = null;
 let dragged = null;
@@ -97,12 +97,13 @@ function draw(container) {
 }
 
 export async function loadSettings(container) {
+  replaceContent(container, loadingState());
   try {
     const data = await getJson(API.delegation);
     draft = structuredClone(data.delegation ?? {});
     if (!Object.keys(draft).length) return replaceContent(container, emptyMessage('Aucune délégation configurée.'));
     draw(container);
   } catch (error) {
-    replaceContent(container, el('p', { class: 'error', text: `Paramètres indisponibles : ${error.message}` }));
+    replaceContent(container, errorState(`Paramètres indisponibles : ${error.message}`, () => loadSettings(container)));
   }
 }

@@ -25,6 +25,7 @@ export function groupByRole(calls) {
 }
 
 function callDuration(call, nowMs) {
+  if (call.status !== 'running' && Number.isFinite(call.durationMs)) return call.durationMs;
   const start = toMs(call.startedAt);
   const end = toMs(call.endedAt) ?? nowMs;
   return start === null ? null : end - start;
@@ -37,12 +38,12 @@ function currentToolText(call) {
   return `${tool.name ?? tool.kind} : ${tool.target ?? ''}${more}`;
 }
 
-function callButton(call, alerts, nowMs) {
+export function callControl(call, alerts, nowMs) {
   const hasAlert = alerts.some((a) => a.callId === call.callId);
   const tool = currentToolText(call);
   const button = el('button', {
     class: `call${hasAlert ? ' call-alert' : ''}`,
-    attrs: { type: 'button', 'aria-haspopup': 'dialog' },
+    attrs: { type: 'button', 'aria-haspopup': call.callId ? 'dialog' : null, disabled: !call.callId },
     on: { click: () => openAgentDialog(call.callId) },
   },
   el('span', { class: 'dot', style: { '--dot': agentColor(call.agent) } }),
@@ -54,7 +55,11 @@ function callButton(call, alerts, nowMs) {
   el('span', { class: 'muted', text: `${formatInt(call.toolCount)} outil(s)` }),
   call.failures ? badge(`${call.failures} échec(s)`, 'warn') : null,
   tool ? el('code', { class: 'current-tool', text: tool }) : null);
-  return el('li', {}, button);
+  return button;
+}
+
+function callButton(call, alerts, nowMs) {
+  return el('li', {}, callControl(call, alerts, nowMs));
 }
 
 function roleBranch(group, alerts, nowMs) {
@@ -69,7 +74,7 @@ function featureTree(name, calls, alerts, nowMs) {
     el('ul', { class: 'tree' }, groupByRole(calls).map((g) => roleBranch(g, alerts, nowMs))));
 }
 
-function alertList(alerts) {
+export function alertList(alerts) {
   if (!alerts.length) return null;
   return el('ul', { class: 'alerts', attrs: { role: 'alert' } }, alerts.map((a) =>
     el('li', {}, badge(ALERT_KIND_LABELS[a.kind] ?? a.kind, 'bad'), ` ${a.agent}${a.feature ? ` (${a.feature})` : ''} — ${a.detail ?? ''}`)));

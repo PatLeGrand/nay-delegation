@@ -1,10 +1,12 @@
 import { AGENT_COLORS, AGENT_FALLBACK_COLORS, ROLE_ALIASES } from './config.js';
 
 const numberFormat = new Intl.NumberFormat('fr-FR');
+const percentFormat = new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFractionDigits: 1 });
 const compactFormat = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
 const timeFormat = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const dateTimeFormat = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 
+export const formatPercent = (n) => percentFormat.format(n ?? 0);
 export const formatInt = (n) => numberFormat.format(n ?? 0);
 export const formatCompact = (n) => compactFormat.format(n ?? 0);
 

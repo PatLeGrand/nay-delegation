@@ -1,3 +1,5 @@
+import { SVG_NS, SKELETON_COUNT } from './config.js';
+
 // Construction du DOM sans innerHTML : tout texte passe par textContent.
 
 export function el(tag, options = {}, ...children) {
@@ -38,4 +40,27 @@ export function table(headers, rows) {
   const head = el('tr', {}, headers.map((h) => el('th', { text: h, attrs: { scope: 'col' } })));
   const body = rows.map((cells) => el('tr', {}, cells.map((c) => el('td', {}, c instanceof Node ? c : document.createTextNode(c ?? '—')))));
   return el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, head), el('tbody', {}, body)));
+}
+
+export function icon(paths) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  for (const [name, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(name, value);
+  for (const d of paths) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
+}
+
+export function loadingState() {
+  return el('div', { class: 'loading-state', attrs: { role: 'status', 'aria-label': 'Chargement en cours' } },
+    el('span', { class: 'muted', text: 'Chargement…' }),
+    el('div', { class: 'grid', attrs: { 'aria-hidden': 'true' } },
+      ...Array.from({ length: SKELETON_COUNT }, () => el('div', { class: 'skeleton' }))));
+}
+
+export function errorState(message, retry) {
+  return el('div', { class: 'notice notice-bad', attrs: { role: 'alert' } },
+    el('p', { text: message }), el('button', { class: 'btn', text: 'Réessayer', attrs: { type: 'button' }, on: { click: retry } }));
 }

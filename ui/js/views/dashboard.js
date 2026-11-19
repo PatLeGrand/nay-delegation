@@ -1,5 +1,6 @@
-import { CALL_STATUS_LABELS, RECENT_CALLS_LIMIT, USAGE_GROUPS } from '../config.js';
+import { CALL_STATUS_LABELS, RECENT_CALLS_LIMIT, USAGE_GROUPS, DAY_MS, HISTOGRAM_DAYS } from '../config.js';
 import { badge, el, emptyMessage, replaceContent, table } from '../dom.js';
+import { openAgentDialog } from './agentDialog.js';
 import { agentColor, formatCompact, formatDateTime, formatDuration, formatInt, orDash } from '../format.js';
 
 function totalsBlock(totals) {
@@ -73,10 +74,10 @@ function quotaSection(quota) {
     unavailableAgents(quota.agents));
 }
 
-function recentTable(recent) {
+export function recentTable(recent, limit = RECENT_CALLS_LIMIT) {
   if (!recent?.length) return emptyMessage('Aucun appel enregistré.');
-  const rows = recent.slice(0, RECENT_CALLS_LIMIT).map((c) => [
-    formatDateTime(c.timestamp), c.agent, c.model, orDash(c.feature), orDash(c.role),
+  const rows = recent.slice(0, limit).map((c) => [
+    c.callId ? el('button', { class: 'btn btn-small', text: formatDateTime(c.timestamp), attrs: { type: 'button', 'aria-haspopup': 'dialog' }, on: { click: () => openAgentDialog(c.callId) } }) : formatDateTime(c.timestamp), c.agent, c.model, orDash(c.feature), orDash(c.role),
     CALL_STATUS_LABELS[c.status] ?? orDash(c.status),
     formatInt((c.usage?.input ?? 0) + (c.usage?.output ?? 0)), formatDuration(c.durationMs),
   ]);
@@ -89,6 +90,7 @@ export function renderDashboard(container, { usage, quota }) {
         el('h2', { text: 'Consommation' }),
         totalsBlock(usage.totals ?? {}),
         legend(),
+        dailyHistogram(usage.byDay),
         el('div', { class: 'grid' }, USAGE_GROUPS.map((g) => barGroup(g.title, usage[g.key], g.key === 'byAgent'))),
       ]
     : [el('h2', { text: 'Consommation' }), emptyMessage('Consommation indisponible.')];
@@ -97,4 +99,24 @@ export function renderDashboard(container, { usage, quota }) {
     quotaSection(quota),
     el('h2', { text: `${RECENT_CALLS_LIMIT} derniers appels` }),
     recentTable(usage?.recent));
+}
+
+function dailyHistogram(byDay = []) {
+  const today = new Date().setUTCHours(0, 0, 0, 0);
+  const rows = Array.from({ length: HISTOGRAM_DAYS }, (_, i) => {
+    const day = new Date(today - (HISTOGRAM_DAYS - 1 - i) * DAY_MS).toISOString().slice(0, 10);
+    return byDay.find((row) => row.day === day) ?? { day, calls: 0, input: 0, cachedInput: 0, output: 0 };
+  });
+  const max = Math.max(1, ...rows.map((r) => r.input + r.output));
+  return el('section', { class: 'card histogram-card', attrs: { 'aria-label': 'Histogramme des jetons par jour sur 14 jours, UTC' } },
+    el('div', { class: 'spread' }, el('h3', { text: 'Jetons par jour' }), el('span', { class: 'muted', text: '14 derniers jours · UTC' })),
+    el('div', { class: 'histogram' }, rows.map((row) => {
+      const fresh = Math.max(0, row.input - row.cachedInput);
+      const description = `${row.day} : ${formatInt(fresh)} entrée non cachée, ${formatInt(row.cachedInput)} cache, ${formatInt(row.output)} sortie, ${row.calls} appel(s)`;
+      return el('div', { class: 'day-column' },
+        el('div', { class: 'day-stack', attrs: { role: 'img', 'aria-label': description, title: description, tabindex: 0 } },
+          [['seg-output', row.output], ['seg-cache', row.cachedInput], ['seg-input', fresh]].map(([cls, value]) => el('span', { class: cls, style: { height: `${value / max * 100}%` } }))),
+        el('span', { class: 'day-label', text: row.day.slice(8), attrs: { 'aria-hidden': 'true' } }));
+    })),
+    !rows.some((r) => r.calls) ? emptyMessage('Aucun jeton sur les 14 derniers jours avec ces filtres.') : null);
 }
