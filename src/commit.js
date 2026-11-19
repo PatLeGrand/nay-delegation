@@ -2,8 +2,36 @@ import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { loadEventConfig, repositoryRoot } from './config.js';
+import { appendEvent, maskEvent, truncateEvent } from './eventLog.js';
 
 const run = promisify(execFile);
+
+// Trace du commit dans le journal de l'appel (événement `commit`), réussi ou non : l'erreur de
+// Git n'est sinon visible que dans la sortie du terminal de l'orchestrateur.
+export async function recordCommit(call, outcome, { journalRoot = repositoryRoot(), now = () => new Date() } = {}) {
+  if (!call?.callId) return;
+  try {
+    const config = loadEventConfig();
+    const event = truncateEvent(maskEvent({ v: 1, callId: call.callId, agent: call.agent ?? null,
+      model: call.model ?? null, feature: call.feature ?? null, role: call.role ?? null,
+      kind: 'commit', ...outcome, ts: now().toISOString() }, config), config);
+    await appendEvent(event, resolve(journalRoot, config.directory), config);
+  } catch { /* Le journal ne doit jamais faire échouer le commit. */ }
+}
+
+// commitRequest + trace dans le journal. `call` : { callId, agent, model, feature, role }.
+export async function commitAndRecord(request, { cwd, call, commit = commitRequest, record = recordCommit, ...rest } = {}) {
+  const base = { message: request.message, files: request.files, cwd: cwd ?? null };
+  try {
+    const line = await commit(request, { cwd, ...rest });
+    await record(call, { ...base, ok: true, commit: line });
+    return line;
+  } catch (error) {
+    await record(call, { ...base, ok: false, error: error.stderr?.trim() || error.message });
+    throw error;
+  }
+}
 
 // Consigne ajoutée au brief : le sandbox du dev garde .git en lecture seule,
 // c'est donc Nay, hors sandbox, qui committe à partir de ces deux lignes.

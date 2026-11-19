@@ -6,6 +6,7 @@ import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXIT, formatStory, parseVerdict, runStory } from '../src/story.js';
+import { commitAndRecord } from '../src/commit.js';
 import { runCommand } from '../src/command.js';
 
 const delegation = { developpeur: ['sol', 'sonnet'],
@@ -240,9 +241,16 @@ test('story sur un vrai dépôt : le commit de Nay est relu', async () => {
       async (agent) => { await writeFile(join(dir, 'a.txt'), 'a\n'); return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.txt'); },
       (agent) => result(agent, 'NAY-VERDICT: PASS'),
     ]);
-    const report = await runStory('brief', { cwd: dir, execute, delegation });
+    // Vrai commit, mais trace capturée : un test n'écrit jamais dans le journal réel de Nay.
+    const traces = [];
+    const committer = (request, options) => commitAndRecord(request, { ...options,
+      record: async (call, outcome) => traces.push({ call, outcome }) });
+    const report = await runStory('brief', { cwd: dir, execute, delegation, committer });
     assert.equal(report.code, EXIT.ok);
     assert.equal(sh('log', '-1', '--format=%s'), 'feat: a');
+    assert.equal(traces.length, 1);
+    assert.equal(traces[0].call.role, 'dev');
+    assert.equal(traces[0].outcome.ok, true);
     assert.equal(sh('status', '--porcelain'), '');
   } finally {
     await rm(dir, { recursive: true, force: true });
