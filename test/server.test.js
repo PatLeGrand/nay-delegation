@@ -262,3 +262,42 @@ test('POST resume : protections, validation, fin et verrou de session, lancement
   rejectResume(new Error('autre échec'));
   await new Promise(setImmediate);
 });
+
+test('usage : jours UTC et fiabilité exacts, filtres inclus', () => {
+  const records = [
+    { timestamp: '2026-11-18T01:00:00+02:00', feature: 'a', agent: 'sol', status: 'ok', durationMs: 10, usage: { input: 10, cachedInput: 4, output: 2 } },
+    { timestamp: '2026-11-17T23:30:00Z', feature: 'a', agent: 'sol', status: 'error', error: 'Réponse vide de l’agent\nDétails privés', durationMs: 30, usage: { input: 20, output: 3 } },
+    { timestamp: '2026-11-18T00:00:00Z', feature: 'a', agent: 'sol', status: 'timeout', error: 'Délai maximal dépassé', durationMs: 50 },
+    { timestamp: '2026-11-18T01:00:00Z', feature: 'b', agent: 'terra', status: 'ok', durationMs: 20, usage: { input: 6, cachedInput: 2, output: 1 } },
+    { timestamp: '2026-11-18T02:00:00Z', feature: 'a', agent: 'sol', status: 'error', error: 'Réponse vide de l’agent\r\nAutres détails', durationMs: 70 },
+  ];
+  const result = aggregateUsage(records);
+  assert.deepEqual(result.byDay, [
+    { day: '2026-11-17', calls: 2, input: 30, cachedInput: 4, output: 5 },
+    { day: '2026-11-18', calls: 3, input: 6, cachedInput: 2, output: 1 },
+  ]);
+  assert.deepEqual(result.reliability, [
+    { key: 'sol', calls: 4, failures: 3, failureRate: 0.75, medianDurationMs: 40, topErrors: [
+      { error: 'Réponse vide de l’agent', count: 2 }, { error: 'Délai maximal dépassé', count: 1 },
+    ] },
+    { key: 'terra', calls: 1, failures: 0, failureRate: 0, medianDurationMs: 20, topErrors: [] },
+  ]);
+  const filtered = aggregateUsage(records, { feature: 'a', since: '2026-11-18' });
+  assert.deepEqual(filtered.byDay, [{ day: '2026-11-18', calls: 2, input: 0, cachedInput: 0, output: 0 }]);
+  assert.deepEqual(filtered.reliability, [{ key: 'sol', calls: 2, failures: 2, failureRate: 1, medianDurationMs: 60,
+    topErrors: [{ error: 'Délai maximal dépassé', count: 1 }, { error: 'Réponse vide de l’agent', count: 1 }] }]);
+  assert.deepEqual(aggregateUsage([]).byDay, []);
+  assert.deepEqual(aggregateUsage([]).reliability, []);
+});
+
+test('usage : trois causes au plus, première ligne et 120 caractères, durées absentes', () => {
+  const records = ['a'.repeat(150) + '\nsecret', 'b', 'c', 'd'].map((error) => ({
+    agent: 'sol', status: 'error', error, timestamp: 'invalide',
+  }));
+  const result = aggregateUsage(records);
+  assert.deepEqual(result.byDay, []);
+  assert.deepEqual(result.reliability, [{ key: 'sol', calls: 4, failures: 4, failureRate: 1, medianDurationMs: null,
+    topErrors: [{ error: 'a'.repeat(120), count: 1 }, { error: 'b', count: 1 }, { error: 'c', count: 1 }] }]);
+  assert.equal(aggregateUsage([{ agent: 'sol', durationMs: 7 }]).reliability[0].medianDurationMs, 7);
+  assert.deepEqual(aggregateUsage([{ agent: 'sol' }]).reliability[0].topErrors, [{ error: 'Cause inconnue', count: 1 }]);
+});

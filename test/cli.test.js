@@ -12,16 +12,29 @@ for (const mode of ['write', 'read']) {
       '-C', '/work space', '-m', 'model-{effort}', '-c', 'model_reasoning_effort=high',
       '-s', mode === 'write' ? 'workspace-write' : 'read-only', '-o', '/tmp/output', '-']);
     assert.deepEqual(agy.buildArgs(options), ['-p', 'Bonjour', '--model', 'model-high',
-      '--output-format', 'stream-json', '--print-timeout', '20m', '--mode',
-      mode === 'write' ? 'accept-edits' : 'plan']);
+      '--output-format', 'stream-json', '--print-timeout', '20m',
+      ...(mode === 'write' ? ['--sandbox'] : ['--mode', 'plan'])]);
     assert.deepEqual(claude.buildArgs(options), ['-p', '--output-format', 'stream-json', '--verbose',
       '--model', 'model-{effort}', '--effort', 'high', '--permission-mode',
-      mode === 'write' ? 'acceptEdits' : 'plan']);
+      mode === 'write' ? 'acceptEdits' : 'plan', ...(mode === 'write' ? ['--settings', claude.WRITE_SANDBOX] : [])]);
+    if (mode === 'write') {
+      assert.deepEqual(JSON.parse(claude.WRITE_SANDBOX).sandbox,
+        { enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false });
+    }
     for (const cli of [codex, agy, claude]) {
       assert.ok(cli.buildArgs(options).every((arg) => !arg.includes('dangerously')));
     }
   });
 }
+
+test('agy : bac à sable en écriture, jamais combiné à --dangerously-skip-permissions', () => {
+  const options = { model: 'm', effort: 'high', prompt: 'p', timeoutMin: 20 };
+  const write = agy.buildArgs({ ...options, mode: 'write' });
+  assert.ok(write.includes('--sandbox') && !write.includes('--mode'));
+  assert.ok(!agy.buildArgs({ ...options, mode: 'read' }).includes('--sandbox'));
+  const skip = agy.buildArgs({ ...options, mode: 'write', skipPermissions: true });
+  assert.ok(skip.includes('--dangerously-skip-permissions') && !skip.includes('--sandbox'));
+});
 
 test('Codex additionne les tours et lit le texte fourni depuis -o', () => {
   const stdout = [

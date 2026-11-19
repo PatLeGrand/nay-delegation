@@ -113,7 +113,7 @@ export async function openAgentDialog(callId, { pending = false } = {}) {
     if (!events?.some((event) => event.kind === 'call_end')) refreshWhileRunning(callId, request);
   } catch (error) {
     if (request !== openRequest) return;
-    replaceContent(body, el('h2', { text: 'Fiche de l’agent', attrs: { id: 'agent-dialog-title' } }), el('p', { class: 'error', text: error.message }));
+    replaceContent(body, el('h2', { text: 'Fiche de l’agent', attrs: { id: 'agent-dialog-title' } }), el('p', { class: 'error', text: error.message }), el('button', { class: 'btn', text: 'Réessayer', on: { click: () => openAgentDialog(callId) } }));
   }
 }
 

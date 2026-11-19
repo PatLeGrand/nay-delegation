@@ -2,6 +2,8 @@
   "sol": { "cli": "codex", "model": "gpt-6.1-sol", "effort": "medium", "timeoutMin": 40 },
   "terra": { "cli": "codex", "model": "gpt-6.1-terra", "effort": "medium", "timeoutMin": 30 },
   "luna": { "cli": "codex", "model": "gpt-6-luna", "effort": "medium", "timeoutMin": 15 },
+  "astra": { "cli": "codex", "model": "gpt-6.2-astra", "effort": "medium", "timeoutMin": 60 },
+  "neon": { "cli": "agy", "model": "gemini-4-neon-{effort}", "effort": "medium", "timeoutMin": 60 },
   "hydrogen": { "cli": "agy", "model": "gemini-4-hydrogen-{effort}", "effort": "medium", "timeoutMin": 30 },
   "argon": { "cli": "agy", "model": "gemini-4-argon-{effort}", "effort": "medium", "timeoutMin": 30 },
   "gemini-flash": { "cli": "agy", "model": "gemini-3.8-flash-{effort}", "effort": "high", "timeoutMin": 20 },
