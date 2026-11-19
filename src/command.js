@@ -18,7 +18,7 @@ import { readQuotas, isAgentAvailable, quotaAgentConfig } from './quota/index.js
 import { remainingPct } from './quota/common.js';
 
 const USAGE = `Usage :
-  nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit]
+  nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
   nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
@@ -130,7 +130,7 @@ export async function runCommand(args, { input = process.stdin, output = process
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
       'read-only': { type: 'boolean', default: false },
       feature: { type: 'string' }, role: { type: 'string' }, cwd: { type: 'string' },
-      commit: { type: 'boolean', default: false },
+      commit: { type: 'boolean', default: false }, effort: { type: 'string' },
     } });
     const [command, agent, brief] = positionals;
     if (command === 'quota' && positionals.length === 1 && args.length === 1) {
@@ -142,7 +142,8 @@ export async function runCommand(args, { input = process.stdin, output = process
     const briefText = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
     const prompt = values.commit ? `${briefText}${COMMIT_INSTRUCTIONS}` : briefText;
     const result = await execute(agent, prompt, { mode: values['read-only'] ? 'read' : 'write',
-      cwd: values.cwd, feature: values.feature, role: values.role });
+      cwd: values.cwd, feature: values.feature, role: values.role,
+      ...(values.effort ? { effort: values.effort } : {}) });
     return await finish(result, { commit: values.commit, cwd: values.cwd, output, errorOutput, committer });
   } catch (error) {
     errorOutput.write(`${error.message}\n`);

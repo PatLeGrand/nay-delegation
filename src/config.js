@@ -46,10 +46,14 @@ export function loadAgents() {
   return readConfig('agents');
 }
 
-export function getAgent(name) {
+const EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+
+// `effort` remplace le niveau configuré (ex. benchmark à niveau égal entre agents).
+export function getAgent(name, { effort } = {}) {
   const agents = loadAgents();
   if (!Object.hasOwn(agents, name)) throw new Error(`Agent inconnu : ${name}`);
-  const agent = agents[name];
+  if (effort !== undefined && !EFFORTS.includes(effort)) throw new Error(`Effort inconnu : ${effort}`);
+  const agent = { ...agents[name], ...(effort ? { effort } : {}) };
   return { ...agent, model: agent.model.replaceAll('{effort}', agent.effort) };
 }
 

@@ -179,7 +179,7 @@ function clean({ shellBlocked, ...result }) {
 }
 
 async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(), feature, role, onEvent, journalRoot = repositoryRoot(),
-  resume, resumedFrom = null, callId = randomUUID(), usagePath } = {}) {
+  resume, resumedFrom = null, callId = randomUUID(), usagePath, effort } = {}) {
   const started = performance.now();
   const engine = loadEngineConfig();
   const workDir = resolve(cwd);
@@ -191,7 +191,7 @@ async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(),
   let cumulativeUsage = false;
   let usageBaseline = emptyUsage();
   try {
-    const agent = getAgent(name);
+    const agent = getAgent(name, { effort });
     Object.assign(result, { model: agent.model, effort: agent.effort });
     cumulativeUsage = engine.cumulativeUsageOnResume?.includes(agent.cli) ?? false;
     if (cumulativeUsage && resume && resumedFrom) {
