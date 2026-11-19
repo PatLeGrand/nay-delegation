@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyEvent, emptyState } from './monitor/state.js';
 import { computeAlerts } from './monitor/alerts.js';
@@ -9,6 +9,7 @@ import { reduceEvents, latestEventsFile } from './monitor/readEvents.js';
 import { formatReport } from './monitor/report.js';
 import { resumeCall } from './resume.js';
 import { COMMIT_INSTRUCTIONS, commitRequest, parseCommitRequest } from './commit.js';
+import { formatStory, runStory } from './story.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
 import { readConfig, repositoryRoot } from './config.js';
@@ -19,6 +20,7 @@ import { remainingPct } from './quota/common.js';
 const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit]
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
+  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
   nay check-config
   nay quota
@@ -79,6 +81,23 @@ function simulatedAvailability(list) {
   return (agent) => !unavailable.has(agent);
 }
 
+// Boucle complète dev → commit → revue → correction, rendue en quelques lignes.
+async function storyCommand(args, { input, output, execute, quotasReader, storyRunner }) {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
+    cwd: { type: 'string' }, feature: { type: 'string' }, rounds: { type: 'string', default: '2' },
+  } });
+  if (positionals.length !== 1) throw new Error(USAGE);
+  const rounds = Number(values.rounds);
+  if (!Number.isInteger(rounds) || rounds < 1) throw new Error('--rounds doit être un entier ≥ 1');
+  const [brief] = positionals;
+  const text = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
+  const cwd = resolve(values.cwd ?? process.cwd());
+  const report = await storyRunner(text, { cwd, feature: values.feature ?? basename(cwd), maxRounds: rounds,
+    execute, isAvailable: await quotaAvailability(quotasReader) });
+  output.write(formatStory(report));
+  return report.code;
+}
+
 function checkConfigCommand(args, output) {
   if (args.length) throw new Error(USAGE);
   const errors = validateDelegation(readConfig('delegation'), Object.keys(readConfig('agents')));
@@ -96,7 +115,7 @@ async function readStdin(stream) {
 
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
-  committer = commitRequest } = {}) {
+  committer = commitRequest, storyRunner = runStory } = {}) {
   try {
     if (args[0] === 'ui') {
       if (args.length !== 1) throw new Error(USAGE);
@@ -105,6 +124,7 @@ export async function runCommand(args, { input = process.stdin, output = process
     }
     if (args[0] === 'resume') return await resumeCommand(args.slice(1), { input, output, errorOutput, resumer, committer });
     if (args[0] === 'status') return await statusCommand(args.slice(1), output, now);
+    if (args[0] === 'story') return await storyCommand(args.slice(1), { input, output, execute, quotasReader, storyRunner });
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {

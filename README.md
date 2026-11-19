@@ -92,6 +92,37 @@ option de contournement des permissions n'est utilisée.
 Les tests utilisent des processus et des flux simulés ; ils ne lancent aucun
 agent et ne consomment aucun jeton.
 
+## Enchaîner dev et revue (`nay story`)
+
+```bash
+node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2]
+```
+
+Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier :
+
+1. Choisit un `developpeur` selon les quotas et lui donne le brief. Si l'agent échoue
+   **sans avoir modifié de fichier** (lancement, quota, délai, réponse vide), Nay passe au
+   suivant ; s'il a déjà modifié des fichiers, Nay s'arrête.
+2. Dans un dépôt git, committe les fichiers annoncés par le dev (voir `--commit`).
+   Hors dépôt git, pas de commit : le relecteur lit les fichiers modifiés.
+3. Choisit un `relecteur` qui n'est pas l'auteur, en lecture seule ; il finit par
+   `NAY-VERDICT: PASS` ou `CHANGES`. Un relecteur en échec cède la place au suivant.
+4. Si `CHANGES` : reprend la session du dev avec les constats, recommite, nouvelle revue,
+   jusqu'à `--rounds` tours (2 par défaut).
+
+Sortie courte, conçue pour l'orchestrateur :
+
+```text
+Dev : sonnet (sauté : sol — quota épuisé)
+Commit : 3f2a1c9 feat(providers): …
+Revue : hydrogen PASS (tour 1)
+Contrôles : ruff ok · mypy ok · pytest 42 passés
+Statut : OK
+```
+
+Code de sortie : `0` revue PASS, `1` bloqué ou défauts restants (constats du relecteur
+affichés), `2` aucun agent disponible. `--feature` vaut par défaut le nom du dossier.
+
 ## Reprendre une session
 
 ```bash
