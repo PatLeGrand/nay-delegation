@@ -100,8 +100,9 @@ export const gitOps = {
   async uncommitted(cwd, maxChars) {
     const { stdout: diff } = await run('git', ['diff', 'HEAD', '--stat', '--patch'], { cwd, maxBuffer: MAX_BUFFER });
     const { stdout: untracked } = await run('git', ['ls-files', '--others', '--exclude-standard'], { cwd });
+    // La liste des nouveaux fichiers reste entière : seul le diff est tronqué.
     const added = untracked.trim() ? `\n\nNouveaux fichiers non suivis (à ouvrir) :\n${untracked.trim()}` : '';
-    return truncate(`${diff}${added}`, maxChars);
+    return `${truncate(diff, maxChars)}${added}`;
   },
 };
 
@@ -116,7 +117,7 @@ export const parseLine = lastMarker;
 // Le verdict doit être la dernière ligne non vide ; toute autre forme vaut CHANGES.
 export function parseVerdict(text = '') {
   const last = text.trim().split('\n').at(-1)?.trim() ?? '';
-  const verdict = last.match(/^NAY-VERDICT:[ \t]*(\S+)/)?.[1].toUpperCase();
+  const verdict = last.match(/^NAY-VERDICT:[ \t]*(PASS|CHANGES)[ \t]*$/i)?.[1].toUpperCase();
   return verdict === 'PASS' ? 'PASS' : 'CHANGES';
 }
 

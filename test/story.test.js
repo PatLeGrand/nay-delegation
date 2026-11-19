@@ -44,6 +44,7 @@ test('parseVerdict : PASS explicite, sinon CHANGES', () => {
   // Le verdict doit être la dernière ligne : un constat après PASS l'annule.
   assert.equal(parseVerdict('NAY-VERDICT: PASS\n[majeur] a.py:3 — bug'), 'CHANGES');
   assert.equal(parseVerdict('RAS\nNAY-VERDICT: PASS\n\n'), 'PASS');
+  assert.equal(parseVerdict('NAY-VERDICT: PASS — défaut majeur présent'), 'CHANGES');
 });
 
 test('story : sans commit demandé, le relecteur reçoit le diff non committé', async () => {
