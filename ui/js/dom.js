@@ -1,66 +1,71 @@
-import { SVG_NS, SKELETON_COUNT } from './config.js';
+// Utilitaires DOM & SVG sûrs : aucun innerHTML avec des données.
+import { SVG_NS } from './config.js';
 
-// Construction du DOM sans innerHTML : tout texte passe par textContent.
-
-export function el(tag, options = {}, ...children) {
-  const node = document.createElement(tag);
-  const { class: className, text, attrs, style, on } = options;
-  if (className) node.className = className;
-  if (text !== undefined && text !== null) node.textContent = text;
-  for (const [name, value] of Object.entries(attrs ?? {})) {
-    if (value !== null && value !== undefined && value !== false) node.setAttribute(name, value === true ? '' : value);
+function applyProps(element, props) {
+  if (!props) return;
+  for (const [key, value] of Object.entries(props)) {
+    if (value == null || value === false) continue;
+    if (key === 'class' || key === 'className') {
+      element.setAttribute('class', String(value));
+    } else if (key === 'style' && typeof value === 'object') {
+      for (const [sk, sv] of Object.entries(value)) {
+        if (sv == null) continue;
+        if (sk.startsWith('--')) element.style.setProperty(sk, String(sv));
+        else element.style[sk] = sv;
+      }
+    } else if (key === 'dataset' && typeof value === 'object') {
+      for (const [dk, dv] of Object.entries(value)) {
+        if (dv != null) element.dataset[dk] = String(dv);
+      }
+    } else if (key.startsWith('on') && typeof value === 'function') {
+      element.addEventListener(key.slice(2).toLowerCase(), value);
+    } else if (value === true) {
+      element.setAttribute(key, '');
+    } else if (key in element && key !== 'list' && key !== 'type' && !(element instanceof SVGElement)) {
+      element[key] = value;
+    } else {
+      element.setAttribute(key, String(value));
+    }
   }
-  for (const [name, value] of Object.entries(style ?? {})) node.style.setProperty(name, value);
-  for (const [name, handler] of Object.entries(on ?? {})) node.addEventListener(name, handler);
-  appendAll(node, children);
+}
+
+function appendChildren(element, children) {
+  for (const child of children) {
+    if (child == null || child === false) continue;
+    if (Array.isArray(child)) {
+      appendChildren(element, child);
+    } else if (child instanceof Node) {
+      element.appendChild(child);
+    } else {
+      element.appendChild(document.createTextNode(String(child)));
+    }
+  }
+}
+
+export function el(tag, props, ...children) {
+  const node = document.createElement(tag);
+  applyProps(node, props);
+  appendChildren(node, children);
   return node;
 }
 
-export function appendAll(node, children) {
-  for (const child of children.flat()) {
-    if (child === null || child === undefined || child === false) continue;
-    node.append(child);
-  }
+export function svgEl(tag, props, ...children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  applyProps(node, props);
+  appendChildren(node, children);
+  return node;
 }
 
-export function replaceContent(node, ...children) {
-  node.replaceChildren();
-  appendAll(node, children);
+export function clear(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
 }
 
-export function emptyMessage(text) {
-  return el('p', { class: 'empty', text });
+export function mount(container, ...children) {
+  clear(container);
+  appendChildren(container, children);
+  return container;
 }
 
-export function badge(text, variant = 'neutral') {
-  return el('span', { class: `badge badge-${variant}`, text });
-}
-
-export function table(headers, rows) {
-  const head = el('tr', {}, headers.map((h) => el('th', { text: h, attrs: { scope: 'col' } })));
-  const body = rows.map((cells) => el('tr', {}, cells.map((c) => el('td', {}, c instanceof Node ? c : document.createTextNode(c ?? '—')))));
-  return el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, head), el('tbody', {}, body)));
-}
-
-export function icon(paths) {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  for (const [name, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' })) svg.setAttribute(name, value);
-  for (const d of paths) {
-    const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', d);
-    svg.append(path);
-  }
-  return svg;
-}
-
-export function loadingState() {
-  return el('div', { class: 'loading-state', attrs: { role: 'status', 'aria-label': 'Chargement en cours' } },
-    el('span', { class: 'muted', text: 'Chargement…' }),
-    el('div', { class: 'grid', attrs: { 'aria-hidden': 'true' } },
-      ...Array.from({ length: SKELETON_COUNT }, () => el('div', { class: 'skeleton' }))));
-}
-
-export function errorState(message, retry) {
-  return el('div', { class: 'notice notice-bad', attrs: { role: 'alert' } },
-    el('p', { text: message }), el('button', { class: 'btn', text: 'Réessayer', attrs: { type: 'button' }, on: { click: retry } }));
+export function mockBadge(label = 'Maquette') {
+  return el('span', { class: 'badge badge-mock', title: 'Données simulées — contrat API dans docs/maquettes.md' }, label);
 }
