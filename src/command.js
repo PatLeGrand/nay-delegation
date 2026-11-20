@@ -28,7 +28,7 @@ const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
       [--skip-permissions]   (agy en écriture, worktree Git lié uniquement)
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
-  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>]
+  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>] [--dev <agent>]
   nay wait <id>... | --feature <nom> [--feature <nom>...] [--since 10m|<ISO>]
       [--until done,failed,needs_input] [--all] [--timeout <min>]
   nay role <rôle> <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--diff <révision>] [--commit]
@@ -112,8 +112,9 @@ function storyJournal() {
 async function storyCommand(args, { input, output, execute, quotasReader, storyRunner }) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
     cwd: { type: 'string' }, feature: { type: 'string' }, rounds: { type: 'string', default: '2' },
-    id: { type: 'string' },
+    id: { type: 'string' }, dev: { type: 'string' },
   } });
+  if (values.dev !== undefined && !Object.hasOwn(readConfig('agents'), values.dev)) throw new Error(`--dev : agent inconnu : ${values.dev}`);
   if (values.id !== undefined && !JOB_ID.test(values.id)) throw new Error('--id : 1 à 64 caractères parmi A-Z a-z 0-9 _ . -');
   if (positionals.length !== 1) throw new Error(USAGE);
   const rounds = Number(values.rounds);
@@ -124,7 +125,7 @@ async function storyCommand(args, { input, output, execute, quotasReader, storyR
   const journal = storyJournal();
   const report = await storyRunner(text, { cwd, feature: values.feature ?? basename(cwd), maxRounds: rounds,
     execute, isAvailable: await quotaAvailability(quotasReader), journal: journal.emit,
-    ...(values.id ? { storyId: values.id } : {}) });
+    ...(values.id ? { storyId: values.id } : {}), ...(values.dev ? { dev: values.dev } : {}) });
   await journal.flush();
   output.write(formatStory(report));
   return report.code;

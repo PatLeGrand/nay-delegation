@@ -160,7 +160,7 @@ export function newStoryId() {
 export const checkOps = { load: (cwd) => loadChecks(cwd), run: (checks, cwd) => runChecks(checks, { cwd }) };
 
 async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2, execute = runAgent,
-  isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord, checker = checkOps,
+  isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord, checker = checkOps, dev: forcedDev,
   storyId } = {}) {
   const report = { dev: null, devSkipped: [], commits: [], reviews: [], checks: null, checksBy: null,
     status: 'OK', code: EXIT.ok, detail: null, findings: null, question: false };
@@ -187,7 +187,9 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
   for (;;) {
     let agent;
     try {
-      ({ agent } = choose('developpeur'));
+      // `--dev` impose l'agent : pas de bascule vers un autre dev s'il échoue.
+      if (forcedDev && unavailable.has(forcedDev)) throw new Error(`${forcedDev} (imposé par --dev) a échoué`);
+      ({ agent } = forcedDev ? { agent: forcedDev } : choose('developpeur'));
     } catch (error) {
       return stop('AUCUN AGENT', EXIT.noAgent, error.message);
     }

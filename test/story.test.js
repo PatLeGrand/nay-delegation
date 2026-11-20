@@ -338,3 +338,19 @@ test('nay story : la CLI rend le compte rendu et le code de sortie', async () =>
   assert.equal(code, 1);
   assert.match(captured.stdout, /Statut : DÉFAUTS — x/);
 });
+
+test('story --dev : l’agent imposé travaille, sans bascule s’il échoue', async () => {
+  const { git, state } = fakeGit();
+  const { calls, execute } = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait\nNAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation, committer: commitOk, dev: 'sonnet' });
+  assert.equal(report.code, EXIT.ok);
+  assert.equal(calls[0].agent, 'sonnet');
+  const failing = scripted([(agent) => result(agent, '', { status: 'error', error: 'quota' })]);
+  const stopped = await story('brief', { execute: failing.execute, git: fakeGit().git, delegation, dev: 'sonnet' });
+  assert.equal(stopped.status, 'AUCUN AGENT');
+  assert.match(stopped.detail, /sonnet \(imposé par --dev\) a échoué/);
+  assert.equal(failing.calls.length, 1);
+});

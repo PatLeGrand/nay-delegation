@@ -142,12 +142,12 @@ agent et ne consomment aucun jeton.
 ## Enchaîner dev et revue (`nay story`)
 
 ```bash
-node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>]
+node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>] [--dev <agent>]
 ```
 
 Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier :
 
-1. Choisit un `developpeur` selon les quotas et lui donne le brief. Si l'agent échoue
+1. Choisit un `developpeur` selon les quotas (ou celui imposé par `--dev`, sans bascule) et lui donne le brief. Si l'agent échoue
    **sans avoir modifié de fichier** (lancement, quota, délai, réponse vide), Nay passe au
    suivant ; s'il a déjà modifié des fichiers, Nay s'arrête.
 2. Dans un dépôt git, committe les fichiers annoncés par le dev (voir `--commit`).
