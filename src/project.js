@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { loadProjectConfig } from './config.js';
 
-export function gitOutput(args, cwd) {
+function readGit(args, cwd) {
   return new Promise((resolveRun, reject) => {
     childProcess.execFile('git', args, { cwd }, (error, stdout) => (error ? reject(error) : resolveRun(stdout)));
   });
@@ -19,7 +19,7 @@ async function projectName(root, file) {
   return basename(root);
 }
 
-export async function detectProject(cwd, { git = gitOutput } = {}) {
+export async function detectProject(cwd, { git = readGit } = {}) {
   try {
     if (!cwd) throw new Error('Dossier de travail absent');
     const commonDir = (await git(['rev-parse', '--path-format=absolute', '--git-common-dir'], cwd)).trim();

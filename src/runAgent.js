@@ -9,7 +9,7 @@ import { writeClaudeQuota } from './quota/claude.js';
 import { getAgent, loadEngineConfig, loadEventConfig, repositoryRoot } from './config.js';
 import { endsWithQuestion, failureCause, loadLifecycleConfig } from './lifecycle.js';
 import { appendUsage, readUsage } from './usageLog.js';
-import { detectProject, gitOutput } from './project.js';
+import { detectProject } from './project.js';
 import { emptyUsage, subtractUsage } from './cli/usage.js';
 import * as codex from './cli/codex.js';
 import * as agy from './cli/agy.js';
@@ -47,6 +47,12 @@ export async function checkSkipPermissions(agent, mode, cwd, git = gitOutput) {
   if (!gitDir || gitDir === commonDir) {
     throw new Error('--skip-permissions exige un worktree Git lié, pas le dépôt principal');
   }
+}
+
+function gitOutput(args, cwd) {
+  return new Promise((resolveRun, reject) => {
+    childProcess.execFile('git', args, { cwd }, (error, stdout) => (error ? reject(error) : resolveRun(stdout)));
+  });
 }
 
 function maskError(text) {

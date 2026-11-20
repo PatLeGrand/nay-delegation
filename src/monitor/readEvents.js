@@ -48,9 +48,9 @@ export async function latestEventsFile(dir) {
 
 export async function readCallState(file, config, { feature, project } = {}) {
   if (!file) return emptyState();
-  // Les événements d'un même appel peuvent ne porter qu'une partie de son identité.
-  const state = await reduceEvents(file, (state, event) => applyEvent(state, event, config), emptyState());
-  if (feature === undefined && !project) return state;
+  const state = await reduceEvents(file, (state, event) => feature === undefined || event.feature === feature
+    ? applyEvent(state, event, config) : state, emptyState());
+  if (!project) return state;
   return { calls: Object.fromEntries(Object.entries(state.calls).filter(([, call]) =>
-    (feature === undefined || call.feature === feature) && matchesProject(call.project, project))) };
+    matchesProject(call.project, project))) };
 }

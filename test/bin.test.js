@@ -187,6 +187,17 @@ test('status résume les appels et les alertes d’un fichier d’événements',
     assert.equal(await runCommand(['status', '--file', file, ...args], { ...scoped, now }), 0);
     assert.match(scoped.stdout, pattern);
   }
+
+  const otherEnd = { ...base, feature: 'autre', kind: 'call_end', status: 'ok', ts: new Date(now()).toISOString() };
+  await writeFile(file, [...lines, JSON.stringify(otherEnd)].join('\n') + '\n');
+  const original = streams();
+  assert.equal(await runCommand(['status', '--file', file, '--feature', 'alertes'], { ...original, now }), 0);
+  assert.match(original.stdout, /alertes · running · command npm test/);
+
+  const alternate = streams();
+  assert.equal(await runCommand(['status', '--file', file, '--feature', 'autre', '--project', 'nay'],
+    { ...alternate, now }), 0);
+  assert.match(alternate.stdout, /autre · ok/);
 });
 
 test('status sur un fichier absent ou vide affiche « Aucun événement »', async (t) => {

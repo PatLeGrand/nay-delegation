@@ -227,6 +227,14 @@ test('API : liste des projets et filtres cumulés de consommation et de statut',
   assert.deepEqual((await get('/api/status?project=-')).calls.map(({ callId, project, branch }) =>
     [callId, project, branch]), [['ancien', null, null], ['essai', null, null]]);
   assert.equal((await get('/api/status?project=')).calls.length, 5);
+
+  await appendFile(f.file, JSON.stringify(event('nay-autre', {
+    project: 'nay', feature: '', kind: 'call_end', status: 'ok',
+  })) + '\n');
+  assert.deepEqual((await get('/api/status?project=nay&feature=autre')).calls.map(({ callId, status }) =>
+    [callId, status]), [['nay-autre', 'running']]);
+  assert.deepEqual((await get('/api/status?feature=')).calls.map(({ callId, status }) =>
+    [callId, status]), [['nay-autre', 'ok']]);
 });
 
 async function streamClient(t, f, query = '') {
