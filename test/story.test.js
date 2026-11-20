@@ -353,4 +353,12 @@ test('story --dev : l’agent imposé travaille, sans bascule s’il échoue', a
   assert.equal(stopped.status, 'AUCUN AGENT');
   assert.match(stopped.detail, /sonnet \(imposé par --dev\) a échoué/);
   assert.equal(failing.calls.length, 1);
+  const none = scripted([]);
+  const offQuota = await story('brief', { execute: none.execute, git: fakeGit().git, delegation, dev: 'sonnet',
+    isAvailable: (agent) => agent !== 'sonnet' });
+  assert.match(offQuota.detail, /sonnet \(imposé par --dev\) est indisponible/);
+  const unknown = await story('brief', { execute: none.execute, git: fakeGit().git, delegation, dev: 'inconnu' });
+  assert.equal(unknown.status, 'AUCUN AGENT');
+  assert.match(unknown.detail, /agent inconnu : inconnu/);
+  assert.equal(none.calls.length, 0);
 });

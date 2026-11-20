@@ -5,6 +5,7 @@ import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { COMMIT_INSTRUCTIONS, commitAndRecord, lastMarker, parseCommitRequest } from './commit.js';
 import { chooseAgent } from './delegation.js';
+import { readConfig } from './config.js';
 import { runAgent } from './runAgent.js';
 import { endsWithQuestion } from './lifecycle.js';
 import { checksFailures, checksNotice, formatChecks, loadChecks, runChecks } from './checks.js';
@@ -189,6 +190,9 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
     try {
       // `--dev` impose l'agent : pas de bascule vers un autre dev s'il échoue.
       if (forcedDev && unavailable.has(forcedDev)) throw new Error(`${forcedDev} (imposé par --dev) a échoué`);
+      // Un agent imposé hors quota ou inconnu s'arrête ici, avant tout appel.
+      if (forcedDev && !availability(forcedDev)) throw new Error(`${forcedDev} (imposé par --dev) est indisponible`);
+      if (forcedDev && !Object.hasOwn(readConfig('agents'), forcedDev)) throw new Error(`--dev : agent inconnu : ${forcedDev}`);
       ({ agent } = forcedDev ? { agent: forcedDev } : choose('developpeur'));
     } catch (error) {
       return stop('AUCUN AGENT', EXIT.noAgent, error.message);
