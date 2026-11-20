@@ -230,7 +230,7 @@ affichent directement le quota restant. Chaque agent est un astre dimensionné p
 relié au noyau par un faisceau télémétrique lorsqu’il est en vol, et entouré d’un halo en cas
 d’alerte.
 
-Cinq vues (raccourcis clavier `1` à `5`, `/` pour le filtre fonctionnalité, `T` pour le thème
+Six vues (raccourcis clavier `1` à `6`, `/` pour le filtre fonctionnalité, `T` pour le thème
 clair/sombre, `Échap` pour fermer la boîte noire) :
 
 - **Orbite** (`1`) : planétarium interactif (cliquer un astre ouvre son dossier et filtre la
@@ -244,6 +244,23 @@ clair/sombre, `Échap` pour fermer la boîte noire) :
 - **Laboratoire** (`5`) : fonctionnalités prospectives clairement badgées **Maquette** (budget et
   économies de cache, arrêt d’urgence, simulation d’aiguillage, décision en un clic), dont les
   contrats d’API sont détaillés dans [docs/maquettes.md](docs/maquettes.md).
+- **Hangar** (`6`) : la flotte de `config/agents.json` (effort et délai modifiables, retrait
+  refusé tant que l’agent est cité dans la délégation) et les modèles proposés par chaque CLI,
+  les « nouveaux » d’abord. « Ajouter » propose un nom et crée l’agent, qui apparaît aussitôt dans
+  l’Aiguillage.
+
+### Catalogue des modèles
+
+Au démarrage, `nay ui` relit en arrière-plan les modèles de chaque CLI : `codex debug models`
+(modèles visibles), `agy models` (variantes `-low`…`-xhigh` regroupées en `modele-{effort}`) et,
+faute de commande côté Claude, la liste fixe `claude` de `config/models.json`. Le résultat est
+gardé dans `.nay/state/models.json` ; un CLI en échec garde son dernier catalogue, marqué périmé.
+Seuls les efforts de Nay (`low`, `medium`, `high`, `xhigh`) sont retenus.
+
+```bash
+node bin/nay.js models            # dernier catalogue connu
+node bin/nay.js models --refresh  # relit les CLI
+```
 
 Cliquer n’importe quel appel ouvre sa **Boîte Noire** (journal d’événements, sorties de commandes
 dépliables, filiation de reprise et formulaire « Répondre à l’agent »). Les journaux restent ceux
