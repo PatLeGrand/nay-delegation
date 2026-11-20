@@ -146,6 +146,7 @@ affiche la question.
 node bin/nay.js story brief.md --cwd /projet --feature quotas &   # ou nay run … &
 node bin/nay.js wait --feature quotas
 node bin/nay.js wait <callId|storyId>... [--until done,failed,needs_input] [--all] [--timeout <min>]
+node bin/nay.js wait --feature a --feature b --since 10m --all   # plusieurs lots, finis ou non
 ```
 
 Bloque, sans que l'appelant ait à sonder, jusqu'au prochain état utile d'un des travaux suivis
@@ -161,6 +162,8 @@ appel 1d917a8b-… · needs_input · haiku · feature quotas · 3 s
 `shell_blocked`, `empty`, `crash` ; pour une story `no_agent`, `blocked`, `defects`).
 `--feature` suit les travaux de la fonctionnalité en cours au lancement ou qui commencent
 ensuite : on peut attendre une story lancée en arrière-plan sans connaître son identifiant.
+Un travail déjà terminé au lancement n'est suivi qu'avec `--since` (commencé depuis cette
+durée ou date) ; `--feature` se répète pour attendre plusieurs lots en une commande.
 Codes de sortie : `0` état atteint, `1` erreur ou identifiant inconnu, `2` délai dépassé.
 Contrat complet : [docs/cycle-de-vie.md](docs/cycle-de-vie.md) ; réglages dans `config/lifecycle.json`.
 

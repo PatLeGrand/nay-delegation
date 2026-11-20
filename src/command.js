@@ -26,7 +26,8 @@ const USAGE = `Usage :
       [--skip-permissions]   (agy en écriture, worktree Git lié uniquement)
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
   nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>]
-  nay wait <id>... | --feature <nom>  [--until done,failed,needs_input] [--all] [--timeout <min>]
+  nay wait <id>... | --feature <nom> [--feature <nom>...] [--since 10m|<ISO>]
+      [--until done,failed,needs_input] [--all] [--timeout <min>]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
   nay check-config
   nay quota
