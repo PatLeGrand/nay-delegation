@@ -7,6 +7,7 @@ import {
 import {
   buildQuery, createAgent, deleteAgent, fetchAgents, fetchCall, fetchDelegation, fetchFeatures,
   fetchModels, fetchQuota, fetchStatus, fetchUsage, refreshModels, resumeCall, saveDelegation, updateAgent,
+  resetDelegation, createRole, updateRole, deleteRole,
 } from './js/api.js';
 import { el, mount } from './js/dom.js';
 import { computeSinceIso, formatDuration } from './js/format.js';
@@ -57,6 +58,11 @@ const state = {
   delegationDirty: false,
   delegationSaving: false,
   delegationErrors: [],
+
+  // Rôles perso : formulaire d'ajout ouvert ou non, erreurs du serveur
+  roleForm: null,
+  roleErrors: [],
+  roleBusy: false,
 
   // Hangar : création et réglage des agents
   hangar: {
@@ -349,6 +355,24 @@ function scheduleInspectorRefresh(callId) {
 }
 
 // Après un changement de flotte, tout ce qui liste les agents est relu.
+// Réponse du serveur après une écriture : le brouillon suit, sauf modifications en cours.
+// Un rôle ajouté ou supprimé est quand même reporté dans un brouillon modifié.
+function applyDelegation(res, { force = false } = {}) {
+  const { ok: _ok, id: _id, ...payload } = res;
+  state.delegation = payload;
+  if (force || !state.delegationDirty || !state.delegationDraft) {
+    state.delegationDraft = JSON.parse(JSON.stringify(payload.delegation));
+    state.delegationDirty = false;
+    return;
+  }
+  for (const key of Object.keys(state.delegationDraft)) {
+    if (!(key in payload.delegation)) delete state.delegationDraft[key];
+  }
+  for (const [key, list] of Object.entries(payload.delegation)) {
+    if (!(key in state.delegationDraft)) state.delegationDraft[key] = list;
+  }
+}
+
 async function reloadFleet() {
   const [agents, models, delegation, quota] = await Promise.allSettled(
     [fetchAgents(), fetchModels(), fetchDelegation(), fetchQuota()]);
@@ -466,11 +490,9 @@ const actions = {
     render();
     try {
       const res = await saveDelegation(state.delegationDraft);
-      state.delegation = { ...state.delegation, delegation: res.delegation };
-      state.delegationDraft = JSON.parse(JSON.stringify(res.delegation));
-      state.delegationDirty = false;
+      applyDelegation(res, { force: true });
       state.delegationSaving = false;
-      notify('Configuration config/delegation.json enregistrée.', 'ok');
+      notify('Délégation enregistrée dans ta config perso.', 'ok');
       render();
     } catch (error) {
       state.delegationSaving = false;
@@ -569,14 +591,87 @@ const actions = {
     }
   },
 
-  async removeAgent(name) {
-    if (state.hangar.busy || !window.confirm(`Retirer ${name} de config/agents.json ?`)) return;
+  async resetPersonalDelegation() {
+    if (!window.confirm('Revenir à l’ordre du dépôt pour tous les rôles ? Tes rôles perso gardent leurs modèles seulement s’ils viennent du dépôt.')) return;
+    try {
+      applyDelegation(await resetDelegation(), { force: true });
+      notify('Délégation revenue aux valeurs du dépôt.', 'ok');
+    } catch (error) {
+      notify(error.message ?? 'Retour impossible', 'danger');
+    }
+    render();
+  },
+
+  openRoleForm() {
+    const first = state.delegation?.agents?.[0];
+    state.roleForm = { id: '', label: '', description: '', instructions: '', mode: 'read', usage: '',
+      agents: first ? [first] : [] };
+    state.roleErrors = [];
+    render();
+  },
+
+  editRoleForm(patch, { silent = false } = {}) {
+    state.roleForm = { ...state.roleForm, ...patch };
+    if (!silent) render();
+  },
+
+  closeRoleForm() {
+    state.roleForm = null;
+    state.roleErrors = [];
+    render();
+  },
+
+  async submitRole() {
+    const form = state.roleForm;
+    if (!form || state.roleBusy) return;
+    state.roleBusy = true;
+    state.roleErrors = [];
+    render();
+    try {
+      const { usage, ...rest } = form;
+      applyDelegation(await createRole({ ...rest, usage: usage || null }));
+      state.roleForm = null;
+      notify(`Rôle ${form.id} ajouté.${usage ? '' : ' L’orchestrateur te demandera quand l’utiliser.'}`, 'ok');
+    } catch (error) {
+      state.roleErrors = error.errors?.length ? error.errors : [error.message ?? 'Ajout impossible'];
+    } finally {
+      state.roleBusy = false;
+      render();
+    }
+  },
+
+  async setRoleUsage(id, usage) {
+    const role = state.delegation?.roles?.[id];
+    if (!role) return;
+    try {
+      applyDelegation(await updateRole(id, { ...role, usage: usage || null }));
+      notify(`Règle de ${id} enregistrée.`, 'ok');
+    } catch (error) {
+      notify(error.errors?.length ? error.errors.join(' · ') : (error.message ?? 'Enregistrement impossible'), 'danger');
+    }
+    render();
+  },
+
+  async removeRole(id) {
+    if (!window.confirm(`Supprimer le rôle ${id} et son ordre de modèles ?`)) return;
+    try {
+      applyDelegation(await deleteRole(id));
+      notify(`Rôle ${id} supprimé.`, 'ok');
+    } catch (error) {
+      notify(error.message ?? 'Suppression impossible', 'danger');
+    }
+    render();
+  },
+
+  async removeAgent(name, { revert = false } = {}) {
+    const question = revert ? `Revenir à la version du dépôt de ${name} ?` : `Retirer ${name} de ta flotte ?`;
+    if (state.hangar.busy || !window.confirm(question)) return;
     state.hangar.busy = true;
     render();
     try {
       await deleteAgent(name);
       delete state.hangar.edits[name];
-      notify(`Agent ${name} retiré de la flotte.`, 'ok');
+      notify(revert ? `${name} est revenu à la version du dépôt.` : `Agent ${name} retiré de ta flotte.`, 'ok');
       await reloadFleet();
     } catch (error) {
       notify(error.status === 409 ? `${name} est encore cité dans l’aiguillage.` : (error.message ?? 'Suppression impossible'), 'danger');

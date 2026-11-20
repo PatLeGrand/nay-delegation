@@ -66,3 +66,7 @@ export const fetchAgents = () => getJson(API.agents);
 export const createAgent = (agent) => sendJson('POST', API.agents, agent);
 export const updateAgent = (name, agent) => sendJson('PUT', API.agent(name), agent);
 export const deleteAgent = (name) => sendJson('DELETE', API.agent(name));
+export const resetDelegation = () => sendJson('DELETE', API.delegationPerso);
+export const createRole = (role) => sendJson('POST', API.roles, role);
+export const updateRole = (id, role) => sendJson('PUT', API.role(id), role);
+export const deleteRole = (id) => sendJson('DELETE', API.role(id));

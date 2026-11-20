@@ -12,6 +12,7 @@ test('Une erreur JSON indique le fichier fautif et conserve sa cause', async (t)
   await mkdir(join(cwd, 'src'));
   await mkdir(join(cwd, 'config'));
   await cp(new URL('../src/config.js', import.meta.url), join(cwd, 'src/config.mjs'));
+  await cp(new URL('../src/userConfig.js', import.meta.url), join(cwd, 'src/userConfig.js'));
   await writeFile(join(cwd, 'config/corrompu.json'), '{');
   const { readConfig } = await import(pathToFileURL(join(cwd, 'src/config.mjs')));
   assert.throws(() => readConfig('corrompu'), (error) => {

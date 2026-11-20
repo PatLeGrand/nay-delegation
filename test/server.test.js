@@ -60,8 +60,8 @@ async function fixture(t, memory = false, options = {}) {
   const file = join(root, '.nay/state/events/2026-11-17.jsonl');
   await writeFile(file, `${JSON.stringify(event('ancien'))}\n`);
   let quotaReads = 0;
-  const server = createServer({ root, config: { ...uiConfig, port: 0, sseFilePollMs: 15, sseHeartbeatSec: 0.05 },
-    ...options, now: () => now, quotasReader: async () => { quotaReads++; return { codex: { status: 'unknown' } }; } });
+  const server = createServer({ root, userDir: join(root, 'perso'),
+    config: { ...uiConfig, port: 0, sseFilePollMs: 15, sseHeartbeatSec: 0.05 }, ...options, now: () => now, quotasReader: async () => { quotaReads++; return { codex: { status: 'unknown' } }; } });
   if (!memory) {
     try {
       server.listen(0, '127.0.0.1');
@@ -149,7 +149,14 @@ async function httpChecks(t, memory) {
   delegation.developpeur.reverse();
   const valid = await f.request('/api/delegation', { method: 'PUT', headers, body: JSON.stringify(delegation) });
   assert.equal(valid.status, 200);
-  assert.deepEqual(JSON.parse(await readFile(join(f.root, 'config/delegation.json'), 'utf8')), delegation);
+  // Le dépôt n'est pas modifié : seul le rôle changé va dans la config perso.
+  assert.deepEqual(JSON.parse(await readFile(join(f.root, 'config/delegation.json'), 'utf8')), readConfig('delegation'));
+  assert.deepEqual(JSON.parse(await readFile(join(f.root, 'perso/delegation.json'), 'utf8')),
+    { developpeur: delegation.developpeur });
+  assert.deepEqual(JSON.parse(valid.text).personal, ['developpeur']);
+  const reset = await f.request('/api/delegation/perso', { method: 'DELETE', headers });
+  assert.deepEqual(JSON.parse(reset.text).delegation, readConfig('delegation'));
+  await assert.rejects(readFile(join(f.root, 'perso/delegation.json')), { code: 'ENOENT' });
   assert.equal((await f.request('/api/delegation', { method: 'PUT', headers, body: ' '.repeat(uiConfig.maxBodyBytes + 1) })).status, 413);
   assert.equal((await f.request('/api/delegation', { method: 'PUT', headers: { ...headers, 'Transfer-Encoding': 'chunked' }, body: ' '.repeat(uiConfig.maxBodyBytes + 1) })).status, 413);
 }

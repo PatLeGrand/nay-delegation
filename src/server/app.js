@@ -9,7 +9,9 @@ import { aggregateUsage } from './usage.js';
 import { readStatus } from './status.js';
 import { readCall } from './calls.js';
 import { readFeatures } from './features.js';
-import { readDelegation, readJson, writeDelegation } from './delegation.js';
+import { readDelegation, readLayered, resetDelegation, writeDelegation } from './delegation.js';
+import { addRole, deleteRole, updateRole } from './roles.js';
+import { userConfigDir } from '../userConfig.js';
 import { addAgent, deleteAgent, listAgents, readModels, updateAgent } from './agents.js';
 import { createCatalog } from '../models/catalog.js';
 import { serveStatic } from './static.js';
@@ -45,7 +47,7 @@ function requestPath(request) {
 }
 
 async function readApi(pathname, params, context) {
-  const { root, dataRoot, config, now, quotasReader, monitorConfig, usagePath, todayFile, catalog } = context;
+  const { root, dataRoot, config, now, quotasReader, monitorConfig, usagePath, todayFile, catalog, userDir } = context;
   const feature = params.has('feature') ? params.get('feature') : undefined;
   if (pathname === '/api/usage') {
     const since = params.has('since') ? params.get('since') : undefined;
@@ -65,9 +67,9 @@ async function readApi(pathname, params, context) {
     return call;
   }
   if (pathname === '/api/features') return readFeatures(root, config.featuresDir);
-  if (pathname === '/api/delegation') return readDelegation(root);
-  if (pathname === '/api/agents') return listAgents(root);
-  if (pathname === '/api/models') return readModels(root, catalog);
+  if (pathname === '/api/delegation') return readDelegation(root, userDir);
+  if (pathname === '/api/agents') return listAgents(root, userDir);
+  if (pathname === '/api/models') return readModels(root, catalog, userDir);
   throw httpError(404, 'Route inconnue');
 }
 
@@ -87,28 +89,43 @@ function serialized(context, task) {
 }
 
 async function writeApi(request, pathname, context) {
-  const { root, config, catalog, modelsConfig } = context;
+  const { root, config, catalog, modelsConfig, userDir } = context;
   const body = () => readBody(request, config.maxBodyBytes);
   const agentMatch = /^\/api\/agents\/([^/]+)$/.exec(pathname);
+  const roleMatch = /^\/api\/roles\/([^/]+)$/.exec(pathname);
   const options = { catalog, config: modelsConfig };
   if (pathname === '/api/delegation' && request.method === 'PUT') {
     const delegation = await body();
-    return [200, await serialized(context, () => writeDelegation(root, delegation))];
+    return [200, await serialized(context, () => writeDelegation(root, userDir, delegation))];
+  }
+  if (pathname === '/api/delegation/perso' && request.method === 'DELETE') {
+    return [200, await serialized(context, () => resetDelegation(root, userDir))];
   }
   if (pathname === '/api/models/refresh' && request.method === 'POST') {
     await catalog.refresh();
-    return [200, await readModels(root, catalog)];
+    return [200, await readModels(root, catalog, userDir)];
   }
   if (pathname === '/api/agents' && request.method === 'POST') {
     const agent = await body();
-    return [201, await serialized(context, () => addAgent(root, agent, options))];
+    return [201, await serialized(context, () => addAgent(root, userDir, agent, options))];
   }
   if (agentMatch && request.method === 'PUT') {
     const agent = await body();
-    return [200, await serialized(context, () => updateAgent(root, agentMatch[1], agent, options))];
+    return [200, await serialized(context, () => updateAgent(root, userDir, agentMatch[1], agent, options))];
   }
   if (agentMatch && request.method === 'DELETE') {
-    return [200, await serialized(context, () => deleteAgent(root, agentMatch[1]))];
+    return [200, await serialized(context, () => deleteAgent(root, userDir, agentMatch[1]))];
+  }
+  if (pathname === '/api/roles' && request.method === 'POST') {
+    const role = await body();
+    return [201, await serialized(context, () => addRole(root, userDir, role))];
+  }
+  if (roleMatch && request.method === 'PUT') {
+    const role = await body();
+    return [200, await serialized(context, () => updateRole(root, userDir, roleMatch[1], role))];
+  }
+  if (roleMatch && request.method === 'DELETE') {
+    return [200, await serialized(context, () => deleteRole(root, userDir, roleMatch[1]))];
   }
   return null;
 }
@@ -141,7 +158,7 @@ async function route(request, response, context) {
 }
 
 export function createServer({ root = repositoryRoot(), config = readConfig('ui'), now = Date.now,
-  dataRoot = root, resumer = resumeCall, quotasReader = readQuotas, agentsConfig,
+  dataRoot = root, userDir = userConfigDir(), resumer = resumeCall, quotasReader = readQuotas, agentsConfig,
   monitorConfig = loadMonitorConfig(), usagePath = readConfig('engine').usageLogPath,
   modelsConfig = loadModelsConfig(), catalog = createCatalog({ root: dataRoot, config: modelsConfig }) } = {}) {
   if (config.host !== '127.0.0.1') throw new Error('Le serveur doit écouter sur 127.0.0.1');
@@ -150,8 +167,8 @@ export function createServer({ root = repositoryRoot(), config = readConfig('ui'
   const streams = new Set();
   // Relu à chaque requête : un agent ajouté depuis l'interface apparaît sans redémarrage.
   const readAgentsConfig = agentsConfig ? async () => agentsConfig
-    : async () => ({ ...quotaAgentConfig(), agents: await readJson(root, 'config/agents.json') });
-  const context = { root, dataRoot, config, now, quotasReader, agentsConfig: readAgentsConfig, monitorConfig,
+    : async () => ({ ...quotaAgentConfig(), agents: (await readLayered(root, userDir, 'agents')).merged });
+  const context = { root, userDir, dataRoot, config, now, quotasReader, agentsConfig: readAgentsConfig, monitorConfig,
     usagePath, todayFile, streams, resumer, resuming: new Set(), catalog, modelsConfig, writes: Promise.resolve() };
   const server = httpServer(async (request, response) => {
     try {
