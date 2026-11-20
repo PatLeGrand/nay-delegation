@@ -19,13 +19,16 @@
 
 ## Reviewer
 
-- Relecture externe : en attente.
+- Relecteur : Hydrogen (gemini-4-hydrogen-medium), lecture seule, lancé avec `nay run` en arrière-plan et attendu avec `nay wait --feature nay-wait`.
+- Tour 1 : CHANGES. (1) `story_end.detail` et les verdicts sautés pouvaient contenir un stderr non masqué ; (2) une exception dans la story empêchait `story_end`, laissant `nay wait` sur `stalled`. Corrigés dans `5975611`, avec un test.
+- Hydrogen a terminé sa réponse par une question (constats écrits dans un fichier à part) : `nay wait` l'a correctement classée `needs_input`.
+- Tour 2 (reprise de session sur le diff du correctif) : PASS, 12 s.
 
 ## Tests
 
 - États et causes, reprise automatique, story, lecture incrémentale avec rotation, `nay wait` avec horloge simulée (fin, `--all`, `--until`, inconnu, délai, `--feature`), `call_end` réel de `runAgent` avec reprise agy, CLI.
 - Essais réels : `nay run haiku … &` puis `nay wait --feature essai-wait` → `done` en 8 s ; consigne finissant sur une question → `needs_input`.
-- `node --test "test/*.test.js"` : 241 réussis, 0 échec.
+- `node --test "test/*.test.js"` : 242 réussis, 0 échec.
 - Ma décision : en attente.
 
 ## Décision finale
