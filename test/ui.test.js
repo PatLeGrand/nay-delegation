@@ -162,3 +162,23 @@ test('sécurité UI : aucun usage de innerHTML dans ui/', async () => {
     assert.ok(!/\.innerHTML\b/.test(content), `innerHTML interdit trouvé dans ${file}`);
   }
 });
+
+test('Hangar : nom suggéré, effort par défaut, tri des nouveaux modèles', async () => {
+  const { suggestAgentName, defaultEffort, sortedModels, countNew, agentChanged } = await import('../ui/js/hangar-model.js');
+  assert.equal(suggestAgentName('gpt-6.2-sol', ['terra']), 'sol');
+  assert.equal(suggestAgentName('gpt-6.2-sol', ['sol']), 'sol-6.2');
+  assert.equal(suggestAgentName('gpt-6.2-sol', ['sol', 'sol-6.2']), 'sol-6.2-2');
+  assert.equal(suggestAgentName('gemini-4-neon-{effort}', ['neon']), 'neon-4');
+  assert.equal(suggestAgentName('claude-opus-5-5', ['opus']), 'opus-5-5');
+  assert.equal(suggestAgentName('claude-fable-5-2', []), 'fable');
+  assert.equal(suggestAgentName('gpt-oss-120b-{effort}', []), 'oss');
+  assert.equal(defaultEffort({ efforts: ['low', 'medium'], defaultEffort: 'low' }), 'medium');
+  assert.equal(defaultEffort({ efforts: ['low', 'high'], defaultEffort: 'high' }), 'high');
+  assert.equal(defaultEffort({ efforts: [] }), 'medium');
+  const provider = { models: [{ model: 'a', usedBy: ['x'] }, { model: 'b', usedBy: [] }] };
+  assert.deepEqual(sortedModels(provider).map((m) => m.model), ['b', 'a']);
+  assert.deepEqual(sortedModels(provider, { onlyNew: true }).map((m) => m.model), ['b']);
+  assert.equal(countNew({ providers: { codex: provider, agy: provider } }), 2);
+  assert.equal(agentChanged({ effort: 'low', timeoutMin: 5 }, { effort: 'low' }), false);
+  assert.equal(agentChanged({ effort: 'low', timeoutMin: 5 }, { timeoutMin: 6 }), true);
+});
