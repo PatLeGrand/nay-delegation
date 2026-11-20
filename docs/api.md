@@ -114,11 +114,12 @@ pour injecter une reprise simulée ; `options.callId` identifie le nouvel appel,
 
 ### `GET /api/features`
 
-Fiches de `docs/features/*.md` analysées :
+Fiches de `docs/features/*.md` analysées. Ce sont les fiches du dépôt Nay : chacune porte `project`,
+le projet détecté une fois pour la racine de Nay (voir `src/project.js`).
 
 ```json
 [{
-  "name": "quotas", "title": "quotas", "branch": "feature/quotas",
+  "name": "quotas", "title": "quotas", "branch": "feature/quotas", "project": "nay",
   "task": "…",
   "developer": "…", "reviewer": "…",
   "verdicts": ["À CORRIGER", "APPROUVÉ"],
@@ -190,7 +191,8 @@ réécrit atomiquement, une ligne par agent ; les écritures de configuration pa
 
 ### `GET /api/events/stream`
 
-Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'événements du jour (`event: agent`, `data: <événement JSON>`), en suivant le changement de date et la rotation. Commentaire `: ping` toutes les 15 s. Paramètre facultatif : `feature`.
+Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'événements du jour (`event: agent`, `data: <événement JSON>`), en suivant le changement de date et la rotation. Commentaire `: ping` toutes les 15 s. Filtres facultatifs cumulables : `feature` et `project`
+(`project=-` pour les événements sans projet, y compris les anciens qui n'ont pas ce champ).
 
 ## Ce que la page affiche
 
