@@ -1,0 +1,37 @@
+[haiku · claude-haiku-5-5/medium · 42.8s · in 41361 / out 7902]
+callId : e4cd9eff-b93b-4fa7-9751-a2f2a86272ef
+session : e9eb51ba-5027-4e32-bebe-3b2aca74bd09
+Raisonnement sans outil, en réponse directe.
+
+**P1.** E dit « C est un fripon », donc E et C sont de natures opposées. B dit que C et E sont de même nature, c'est faux, donc B est un fripon. A dit « B est un fripon », c'est vrai, donc A est un chevalier. C dit « A est un fripon ou D est un chevalier », donc C est un chevalier si et seulement si D l'est. Si C est un chevalier, D l'est aussi, donc il y a au moins deux chevaliers (A et C), ce qui contredit D. Donc C est un fripon, E est un chevalier, D n'est pas un chevalier, et l'affirmation de D (« exactement un chevalier ») est fausse, ce qui est cohérent. Chevaliers : A et E.
+
+**P2a.** Chemin critique : A(3) → B(1) → D(5) → F(1) = 10 h, ou A(3) → C(1) → E(5) → F(1) = 10 h. Avec autant d'ouvriers, 10 h.
+
+**P2b.** Total de travail : 20 h. Au départ, seuls A et G sont disponibles ; le second ouvrier attend donc 2 h, ce qui porte le total à 22 h, soit au moins 11 h. Pour 11 h, il faut que B et C démarrent tous deux à 3 h, puis D et E à 4 h, et il ne reste alors que H (3 h) et F (1 h) à caser sans attente, ce qui est impossible. Donc 12 h, atteignable : ouvrier 1 : A (0–3), B (3–4), D (4–9), H (9–12) ; ouvrier 2 : G (0–1), C (3–4), E (4–9), F (9–10).
+
+**P3.** Nombre de tirages : C(9,3) = 84. Tirages de trois couleurs différentes : 4 × 3 × 2 = 24. Probabilité : 24/84 = 2/7.
+
+**P4.** Avec `var`, les trois fonctions renvoient 3, donc total = 9. Le tri lexicographique donne [1, 10, 100, 9]. `obj.inc().inc()` porte n à 3. Le filtre ne garde que « a », donc 1. `typeof NaN` vaut « number ». `0.1 + 0.2 === 0.3` vaut false.
+
+**P5.** Divisibles par 3 ou 5 : 333 + 200 − 66 = 467. Parmi eux, divisibles par 7 : par 21 (47) + par 35 (28) − par 105 (9) = 66. Résultat : 467 − 66 = 401.
+
+**P6.**
+- a) Liste de terra : hydrogen, sonnet, gemini-flash. Hydrogen et sonnet sont indisponibles, donc gemini-flash.
+- b) Liste de hydrogen : terra, gemini-flash. Terra est indisponible, donc gemini-flash.
+- c) Pas de liste propre à sol, donc liste par défaut : hydrogen, terra, sonnet, gemini-flash. Hydrogen est indisponible, donc terra.
+- d) Liste par défaut sans sonnet : hydrogen, terra, gemini-flash. Hydrogen et terra sont indisponibles, donc gemini-flash.
+
+**P7.** Les positions perdantes pour celui qui joue sont les multiples de 3 : si n ≡ 0 (mod 3), tout coup (1, 2 ou 4) laisse un reste non nul, et l'adversaire peut ramener au multiple de 3 suivant. 2026 ≡ 1 (mod 3), donc le premier joueur gagne. Ses coups gagnants amènent à un multiple de 3 : retirer 1 (reste 2025) ou retirer 4 (reste 2022). Retirer 2 (reste 2024 ≡ 2) ne convient pas.
+
+RÉPONSES
+P1: AE
+P2a: 10
+P2b: 12
+P3: 2/7
+P4: 9 1,10,100,9 3 1 number false
+P5: 401
+P6a: gemini-flash
+P6b: gemini-flash
+P6c: terra
+P6d: gemini-flash
+P7: premier ; 1, 4

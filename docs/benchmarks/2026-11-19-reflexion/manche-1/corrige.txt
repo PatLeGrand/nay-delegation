@@ -1,0 +1,11 @@
+P1: AE
+P2a: 10
+P2b: 12
+P3: 2/7
+P4: 9 1,10,100,9 3 1 number false
+P5: 401
+P6a: gemini-flash
+P6b: gemini-flash
+P6c: terra
+P6d: gemini-flash
+P7: premier ; 1,4

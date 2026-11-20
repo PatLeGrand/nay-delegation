@@ -1,0 +1,35 @@
+[haiku · claude-haiku-5-5/medium · 67.1s · in 42043 / out 14553]
+callId : f9821ef5-8cb7-4a7c-8f08-bee0dfd70c31
+session : a6e8d5fb-afab-44a7-a0b7-a7178d8ea498
+**H1.** Ana ne peut pas être verte : la personne juste avant elle serait Bao, qui fait du Go. Elle est donc rouge. Bao est au rang 3 (rang 1 interdit, il passe avant Dov) et fait du Go (règle 6). Ana n'est ni Python ni Java (bleue), donc Rust, ce qui met Cyd en vert au rang 1. Cyd ne peut pas faire Java (verte), donc Python, et Dov fait Java en bleu. Bao reste jaune.
+
+**H2.** Il y a 5 « a » et 7 « b », et les séries ne dépassent pas 2 lettres. On compte les découpages en séries de 1 ou 2 lettres, puis les alternances possibles (le nombre de séries « a » et « b » diffère d'au plus 1). Le total donne 12 + 32 + 40 + 4 + 20 + 6 = 114.
+
+**H3.** On note E(s) l'espérance de lancers restants à partir de la somme s. E(9)=1 et E(s)=1+(1/6)·Σ E(s+d). Les valeurs E(3..9) suivent (7/6)^(9−s). En poursuivant la récurrence jusqu'à E(0) on obtient 33495175/10077696 ≈ 3.3237 (vérifié numériquement).
+
+**H4.** Ordre synchrone : P, A1, S. Puis les microtâches : M1, R, A2, Q, A3, X. Les deux timers suivent, T1 avant T2.
+
+**H5.** a) Sans péage, le chemin S–A–E–T vaut 4+12+3 = 19, et aucun autre n'est moins cher. b) Avec un seul péage, S–B–A–E–T vaut 2+1+12+3 = 18, et A–C (péage) puis C–D–E–T vaut 18 aussi. Le coût minimal est donc 18.
+
+**H6.** a : call_end erreur avec reprise, la reprise b n'a pas encore commencé, donc « working ». b : dernier événement à t=60, soit 70 s plus tôt, donc « stalled ». c : b se termine à t=300 avec une question, donc « needs_input ». d : c a eu un tool_end à t=10, donc « working ». e : à t=75, c est sans événement depuis 65 s, donc la story est « stalled ». f : erreur « 429 / Too Many Requests » à t=20, donc « failed » pour cause de quota.
+
+**H7.** a) Z(n) = ⌊n/5⌋+⌊n/25⌋+⌊n/125⌋+⌊n/625⌋. Z(2004)=499 et Z(2005)=401+80+16+3=500, donc n = 2005. b) 3^2026 ≡ 1 mod 8. Modulo 125 : 3^2026 ≡ 3^26 ≡ 79. Le seul x ≡ 79 (mod 125) et x ≡ 1 (mod 8) est 329.
+
+**H8.** Le jeu de soustraction {1,2,3} a pour valeur de Grundy n mod 4. Les piles 3, 5, 7 donnent 3, 1, 3, dont le XOR vaut 1 ≠ 0, donc le premier joueur gagne. Les seuls coups qui ramènent le XOR à 0 sont 3→2, 5→4 et 7→6 (chacun en retirant 1 jeton).
+
+RÉPONSES
+H1: Ana=Rust/rouge/2 Bao=Go/jaune/3 Cyd=Python/vert/1 Dov=Java/bleu/4
+H2: 114
+H3: 33495175/10077696 ≈ 3.3237
+H4: P A1 S M1 R A2 Q A3 X T1 T2
+H5a: 19
+H5b: 18
+H6a: working
+H6b: stalled
+H6c: needs_input
+H6d: working
+H6e: stalled
+H6f: failed (quota)
+H7a: 2005
+H7b: 329
+H8: oui ; pile 3 -1, pile 5 -1, pile 7 -1

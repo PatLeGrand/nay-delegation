@@ -1,0 +1,35 @@
+[hydrogen · gemini-4-hydrogen-medium/medium · 26.8s · in 11673 / out 6399]
+callId : 5b055977-5f21-4dd3-909c-c77b1118a0e3
+session : 000c1b4a-d278-43e6-bb2c-93247cbe982e
+**P1.** E affirme que C est un fripon, donc C et E sont de natures opposées. L'affirmation de B (« C et E sont de même nature ») est donc fausse : B est un fripon. A dit vrai (« B est un fripon ») : A est un chevalier. D affirme qu'il n'y a qu'un seul chevalier, ce qui est faux car A est chevalier et l'un de C ou E l'est aussi : D est un fripon. La disjonction de C (« A est un fripon ou D est un chevalier ») est fausse : C est un fripon, donc E est un chevalier. Chevaliers : A et E.
+
+**P2.**
+- a) Chemin critique avec ouvriers illimités : A (0–3) → B, C (3–4) → D, E (4–9) → F (9–10) (pendant que G est en 0–1 et H en 4–7). Durée minimale : 10 h.
+- b) Avec 2 ouvriers, à $t=0$ seuls A (3 h) et G (1 h) sont disponibles ; le second ouvrier est forcément inactif de $t=1$ à $t=3$ (2 h d'inactivité). Les tâches restantes totalisent 16 h à partir de $t=3$. À $t=4$, il reste D (5 h), E (5 h), H (3 h) et F (1 h, après D et E) : si D et E tournent en 4–9, F (9–10) et H (9–12) finissent à 12 h ; sinon l'un de D ou E ne démarre qu'après H (à 7 h) et finit à 12 h (et F à 13 h). Minimum : 12 h.
+
+**P3.** Il y a $4 \times 3 \times 2 = 24$ tirages d'une boule de chaque couleur sur $\binom{9}{3} = 84$ tirages possibles, soit $\frac{24}{84} = \frac{2}{7}$.
+
+**P4.** `var i` vaut `3` après la boucle donc `total = 9` ; `.sort()` trie par ordre lexicographique (`1,10,100,9`) ; `obj.inc().inc()` donne `n = 3` ; seule `'a'` est truthy (`1`) ; `typeof NaN` vaut `number` ; `0.1 + 0.2 === 0.3` vaut `false`.
+
+**P5.** Multiples de 3 ou 5 dans $[1, 1000]$ : $333 + 200 - 66 = 467$. On retire ceux qui sont multiples de 7 (soit multiples de 21 ou 35) : $47 + 28 - 9 = 66$. Total : $467 - 66 = 401$.
+
+**P6.**
+- a) Liste de `terra` (`hydrogen, sonnet, gemini-flash`) sans `hydrogen` ni `sonnet` → `gemini-flash`.
+- b) Liste de `hydrogen` (`terra, gemini-flash`) sans `terra` → `gemini-flash`.
+- c) Liste par défaut (`hydrogen, terra, sonnet, gemini-flash`) sans `hydrogen` → `terra`.
+- d) Liste par défaut sans `sonnet`, `hydrogen`, `terra` → `gemini-flash`.
+
+**P7.** Les positions perdantes sont exactement les multiples de 3 (car $1, 2, 4 \not\equiv 0 \pmod 3$, et depuis tout $n \not\equiv 0 \pmod 3$ on peut atteindre un multiple de 3). Comme $2026 = 3 \times 675 + 1 \equiv 1 \pmod 3$, le premier joueur gagne en retirant $1$ (laissant $2025$) ou $4$ (laissant $2022$).
+
+RÉPONSES
+P1: AE
+P2a: 10
+P2b: 12
+P3: 2/7
+P4: 9 1,10,100,9 3 1 number false
+P5: 401
+P6a: gemini-flash
+P6b: gemini-flash
+P6c: terra
+P6d: gemini-flash
+P7: premier ; 1, 4
