@@ -27,8 +27,8 @@
 - `test/ui.test.js` couvre l'ordre des projets, l'option « Essais hors Git », les fonctionnalités par projet et le filtrage des fiches et des contrôles.
 - `node --test "test/*.test.js"` : 306 réussis, 0 échec.
 - Essai réel (`nay ui` de la branche sur les vrais journaux) : 13 projets listés, worktrees regroupés sous leur dépôt ; weather-source-benchmark → 35 appels et ses seules fonctionnalités ; choix gardé après rechargement ; pas de défilement horizontal à 375 px.
-- Ma décision : en attente.
+- Ma décision : fusion demandée par l'utilisateur le 20/11.
 
 ## Décision finale
 
-- En attente.
+- Fusionné dans `main` (PR #19), le 20/11.
