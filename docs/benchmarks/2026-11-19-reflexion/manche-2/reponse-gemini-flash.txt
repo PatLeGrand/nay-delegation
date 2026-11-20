@@ -1,0 +1,119 @@
+[gemini-flash · gemini-3.8-flash-high/high · 300.2s · in 11565 / out 42221]
+callId : 0ee059cf-73c4-40a9-8821-a509c30903ed
+session : 811dc86f-8877-4aa8-9c52-7e9a9291cdf0
+### Raisonnement par problème
+
+**H1.** 
+Ana est au rang 2 (9). Bao n'est pas au rang 1 (11) et passe avant Dov (3), donc Bao est au rang 3 et Dov au rang 4. Par élimination, Cyd est au rang 1.
+Cyd et Go ont 2 rangs d'écart (6), donc Go est au rang 3 (Bao). 
+Ana (rang 2) ne fait pas Python (2), pas Java (car Java = bleu et Ana n'est pas en bleu, 5 et 2), et Go est en 3, donc Ana fait du Rust.
+Rust étant en 2, la personne en vert est au rang 1 (1) : Cyd est en vert.
+Cyd ne fait pas Java (bleu), donc Cyd fait du Python (7). Il reste Java au rang 4 (Dov), qui est donc en bleu (5).
+Pour les couleurs restantes (rouge et jaune) aux rangs 2 et 3 : Ana n'est pas en jaune (12), donc Ana est en rouge et Bao est en jaune (ce qui respecte Dov non rouge et rang 1 non jaune).
+Ainsi : Cyd (Python, vert, 1), Ana (Rust, rouge, 2), Bao (Go, jaune, 3), Dov (Java, bleu, 4).
+
+**H2.** 
+Un mot sans 3 lettres identiques consécutives a des blocs de 'a' et de 'b' de taille 1 ou 2.
+Avec 5 'a' répartis en $k$ blocs :
+- $k=3$ : partitions (2,2,1) $\to 3$ façons.
+- $k=4$ : partitions (2,1,1,1) $\to 4$ façons.
+- $k=5$ : partition (1,1,1,1,1) $\to 1$ façon.
+Avec 7 'b' répartis en $m$ blocs :
+- $m=4$ : partitions (2,2,2,1) $\to 4$ façons.
+- $m=5$ : partitions (2,2,1,1,1) $\to 10$ façons.
+- $m=6$ : partitions (2,1,1,1,1,1) $\to 6$ façons.
+Les blocs alternent, donc $|k - m| \le 1$ :
+- Début 'a', fin 'b' ($k=m$) : $k=4 \Rightarrow 4 \times 4 = 16$ ; $k=5 \Rightarrow 1 \times 10 = 10$.
+- Début 'b', fin 'a' ($k=m$) : $m=4 \Rightarrow 16$ ; $m=5 \Rightarrow 10$.
+- Début 'a', fin 'a' ($m=k-1$) : $k=5, m=4 \Rightarrow 1 \times 4 = 4$.
+- Début 'b', fin 'b' ($k=m-1$) : $m=4, k=3 \Rightarrow 4 \times 3 = 12$ ; $m=5, k=4 \Rightarrow 10 \times 4 = 40$ ; $m=6, k=5 \Rightarrow 6 \times 1 = 6$.
+Total = $16 + 10 + 16 + 10 + 4 + 12 + 40 + 6 = 114$.
+
+**H3.** 
+Soit $E(s)$ le nombre moyen de lancers restants depuis la somme $s$. Pour $s \ge 10$, $E(s) = 0$.
+Pour $s \le 9$, $E(s) = 1 + \frac{1}{6} \sum_{d=1}^6 E(s+d)$, ce qui équivaut à la récurrence $E(s) = \frac{7}{6}E(s+1) - \frac{1}{6}E(s+7)$.
+Pour $s \in \{3, \dots, 9\}$, $s+7 \ge 10 \implies E(s+7) = 0$, d'où $E(s) = (7/6)^{9-s}$.
+En descendant :
+$E(2) = (7/6)^7 - 1/6$
+$E(1) = (7/6)^8 - 14/6^2$
+$E(0) = (7/6)^9 - 3 \times \frac{7^2}{6^3} = \frac{7^9 - 147 \times 6^6}{6^9} = \frac{40353607 - 6858432}{10077696} = \frac{33495175}{10077696}$.
+La fraction est irréductible (numérateur non divisible par 2 ni 3) et vaut environ $3{,}3237$.
+
+**H4.** 
+1. Exécution synchrone :
+   - `setTimeout(T1)` planifie le timer T1.
+   - `new Promise` exécute immédiatement son exécuteur : affiche `P`, `resolve('R')`.
+   - `queueMicrotask` enregistre la tâche M1.
+   - `p.then(...)` enregistre la microtâche du premier then sur `p`.
+   - La fonction async s'exécute jusqu'au premier `await` : affiche `A1`, `await null` enregistre sa reprise.
+   - `p.then(Q)` enregistre sa microtâche sur `p`.
+   - `setTimeout(T2)` planifie le timer T2.
+   - `log.push('S')` synchrone : affiche `S`.
+2. Vidage de la file des microtâches (tour 1) :
+   - M1 s'exécute $\to$ `M1`.
+   - Premier then de `p` s'exécute avec 'R' $\to$ `R`, retourne `Promise.resolve('X')` (planifie la résolution asynchrone de la promesse chaînée).
+   - Reprise de l'async function $\to$ `A2`, puis `await p` (enregistre la reprise pour 'A3').
+   - Callback de `p.then(Q)` $\to$ `Q`.
+3. Microtâches suivantes :
+   - La reprise de l'async s'exécute $\to$ `A3`.
+   - La chaîne de résolution de `Promise.resolve('X')` se termine et déclenche son `.then` $\to$ `X`.
+4. Macrotâches (timers) :
+   - T1 s'exécute $\to$ `T1`.
+   - T2 s'exécute $\to$ `T2` et affichage.
+Ordre complet : `P A1 S M1 R A2 Q A3 X T1 T2`.
+
+**H5.** 
+Les arêtes à péage sont S–B (2), A–C (5) et C–E (3). T n'est accessible que depuis D (coût 11) ou E (coût 3).
+a) Sans péage : le chemin le plus court vers E est S–A–E (coût $4 + 12 = 16$), puis E–T (3), soit un coût total de $16 + 3 = 19$. Le chemin vers D (S–A–B–C–D = 15) donne via D–T $15 + 11 = 26$ et via D–E–T $15 + 4 + 3 = 22$. Le coût minimal est donc 19.
+b) Avec au plus une arête à péage :
+- En utilisant S–B (P, 2) : S–B–A–E–T de coût $2 + 1 + 12 + 3 = 18$.
+- En utilisant A–C (P, 5) : S–A–C–D–E–T de coût $4 + 5 + 2 + 4 + 3 = 18$.
+Aucun chemin ne permet d'atteindre 17 ou moins. Le coût minimal est 18.
+
+**H6.** 
+- a) À $t=45$, l'appel $a$ a échoué à $t=40$ avec « retrying » ; sa reprise $b$ ne commence qu'à $t=50$. Tant que la reprise n'a pas commencé, il vaut « working ».
+- b) À $t=130$, $a$ prend l'état de sa reprise $b$. Le dernier événement de $b$ était à $t=60$ ($130 - 60 = 70\text{ s} > 60\text{ s}$). En cours et sans événement depuis plus de 60 s, $b$ est « stalled », donc $a$ est « stalled ».
+- c) À $t=300$, $b$ se termine par « ok, question », son état est donc « needs_input », et $a$ prend cet état.
+- d) À $t=65$, pour la story $s$, le dernier événement de son appel $c$ a eu lieu à $t=10$ ($65 - 10 = 55\text{ s} \le 60\text{ s}$). L'appel $c$ est toujours « working », donc la story est « working ».
+- e) À $t=75$, aucun événement de $s$ ni de $c$ n'est survenu depuis $t=10$ ($75 - 10 = 65\text{ s} > 60\text{ s}$). La story est « stalled ».
+- f) À $t=30$, l'appel $d$ s'est terminé à $t=20$ par une erreur mentionnant le code 429 et « Too Many Requests », son état est « failed » avec la cause « quota ».
+
+**H7.** 
+a) Le nombre de zéros terminaux de $n!$ est $Z(n) = \sum_{k \ge 1} \lfloor n/5^k \rfloor$.
+Pour $n = 2000$ : $400 + 80 + 16 + 3 = 499$.
+Pour $n = 2005$ : $v_5(2005) = 1 \implies Z(2005) = 499 + 1 = 500$.
+Le plus petit entier est 2005.
+b) On cherche $3^{2026} \pmod{1000}$ avec $1000 = 8 \times 125$.
+- Modulo 8 : $3^2 \equiv 1 \implies 3^{2026} \equiv 1 \pmod 8$.
+- Modulo 125 : $\phi(125) = 100 \implies 3^{2026} \equiv 3^{26} \pmod{125}$.
+  $3^5 = 243 \equiv -7 \pmod{125} \implies 3^{10} \equiv 49 \pmod{125} \implies 3^{20} \equiv 49^2 = 2401 \equiv 26 \pmod{125}$.
+  $3^6 \equiv -21 \pmod{125} \implies 3^{26} \equiv 26 \times (-21) = -546 \equiv 79 \pmod{125}$.
+- Par restes chinois : $x \equiv 79 \pmod{125}$ avec $x \in \{79, 204, 329, 454, \dots\}$ ; $329 = 41 \times 8 + 1 \equiv 1 \pmod 8$.
+Les trois derniers chiffres sont 329.
+
+**H8.** 
+Jeu de Nim avec jeu de soustraction $S = \{1, 2, 3\}$. La fonction de Grundy vaut $g(n) = n \bmod 4$.
+Les valeurs pour les piles de 3, 5 et 7 sont :
+$g(3) = 3$, $g(5) = 1$, $g(7) = 3$.
+Somme de Nim : $G = 3 \oplus 1 \oplus 3 = 1 \ne 0$, donc la position est gagnante pour le premier joueur (oui).
+Les coups gagnants réduisent le Nim-sum à 0 :
+- Sur la pile 3 : viser $g = 2 \implies$ retirer 1 jeton ($3 \to 2$, $g(2)=2$).
+- Sur la pile 5 : viser $g = 0 \implies$ retirer 1 jeton ($5 \to 4$, $g(4)=0$).
+- Sur la pile 7 : viser $g = 2 \implies$ retirer 1 jeton ($7 \to 6$, $g(6)=2$).
+
+RÉPONSES
+H1: Ana=Rust/rouge/2 Bao=Go/jaune/3 Cyd=Python/vert/1 Dov=Java/bleu/4
+H2: 114
+H3: 33495175/10077696 ≈ 3.3237
+H4: P A1 S M1 R A2 Q A3 X T1 T2
+H5a: 19
+H5b: 18
+H6a: working
+H6b: stalled
+H6c: needs_input
+H6d: working
+H6e: stalled
+H6f: failed (quota)
+H7a: 2005
+H7b: 329
+H8: oui ; pile 3 -1, pile 5 -1, pile 7 -1

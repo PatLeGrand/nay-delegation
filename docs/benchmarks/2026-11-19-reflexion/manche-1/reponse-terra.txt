@@ -1,0 +1,29 @@
+[terra · gpt-6.1-terra/medium · 25.5s · in 20152 / out 1076]
+callId : 931a8ead-74a0-4390-8bcd-1b54e89e5d25
+session : 01a1f6b2-e113-7623-a0df-5eb09e7bb074
+P1. E dit le contraire de C, donc B ment et A dit vrai. Si C était chevalier, D le serait aussi, ce qui contredirait l’affirmation de D. C et D sont donc fripons, et E est chevalier.
+
+P2. Avec autant d’ouvriers que nécessaire, le chemin critique A → B → E → F dure 10 h. Avec deux ouvriers, 11 h est impossible : D et E devraient commencer au plus tard à 5 h, alors que H ne peut commencer avant 4 h et occupe un ouvrier pendant 3 h. En 12 h, on peut exécuter A puis B puis D puis H sur un ouvrier, et G puis C puis E puis F sur l’autre, en respectant les prérequis.
+
+P3. Il y a \(4 \times 3 \times 2 = 24\) tirages favorables parmi \(\binom{9}{3}=84\), soit \(2/7\).
+
+P4. Les trois fonctions lisent la valeur finale `i = 3`. Le tri est lexicographique, `n` vaut 3, et seul `'a'` passe le filtre.
+
+P5. Il y a \(333+200-66=467\) multiples de 3 ou 5. Parmi eux, \(47+28-9=66\) sont aussi multiples de 7, d’où 401.
+
+P6. On parcourt la liste applicable après retrait de l’auteur et des agents indisponibles.
+
+P7. Les positions perdantes sont les multiples de 3 : tout coup en sort, et depuis toute autre position on peut y revenir. Comme \(2026 \equiv 1 \pmod 3\), retirer 1 ou 4 jetons est gagnant.
+
+RÉPONSES
+P1: AE
+P2a: 10
+P2b: 12
+P3: 2/7
+P4: 9 1,10,100,9 3 1 number false
+P5: 401
+P6a: gemini-flash
+P6b: gemini-flash
+P6c: terra
+P6d: gemini-flash
+P7: premier ; 1, 4
