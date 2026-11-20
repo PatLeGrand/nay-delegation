@@ -1,0 +1,46 @@
+[hydrogen · gemini-4-hydrogen-medium/medium · 51.9s · in 12252 / out 14512]
+callId : 3d895543-634d-47e6-b1eb-5a9ba5e4c7d0
+session : 7762e2ed-eaef-4bca-9f20-aa086eb66079
+**H1.** Ana est au rang 2 (9). Comme Bao passe avant Dov (3) et pas au rang 1 (11), on a Cyd=1, Ana=2, Bao=3, Dov=4. Cyd (1) et la personne en Go sont séparés de 2 rangs (6), donc Bao (3) fait du Go. Ana ne fait ni Python (2) ni Java (5, car elle n'est pas en bleu), donc Ana fait du Rust, et la personne en vert est juste avant elle (1), soit Cyd=vert. Cyd (vert) ne peut pas être en bleu (Java), donc Cyd=Python et Dov=Java/bleu (5, 7). Ana n'étant pas jaune (12), Ana=rouge et Bao=jaune.
+
+**H2.** Les blocs de `a` (somme 5, longueurs 1 ou 2) sont au nombre de $k \in \{3, 4, 5\}$ avec $\binom{k}{5-k} \in \{3, 4, 1\}$ configurations ; ceux de `b` (somme 7, longueurs 1 ou 2) sont au nombre de $m \in \{4, 5, 6, 7\}$ avec $\binom{m}{7-m} \in \{4, 10, 6, 1\}$ configurations. L'alternance impose $|k - m| \le 1$ (2 choix de départ si $k=m$, 1 sinon) :
+$1(3\cdot 4) + 2(4\cdot 4) + 1(4\cdot 10) + 1(1\cdot 4) + 2(1\cdot 10) + 1(1\cdot 6) = 12 + 32 + 40 + 4 + 20 + 6 = 114$.
+
+**H3.** Par récurrence $E(s) = 1 + \frac{1}{6}\sum_{k=1}^6 E(s+k)$ avec $E(s)=0$ pour $s\ge 10$ : pour $3 \le s \le 9$, $E(s) = (7/6)^{9-s}$. Puis $E(2) = \frac{7}{6}E(3) - \frac{1}{6} = \frac{776887}{6^7}$, $E(1) = \frac{7}{6}E(2) - \frac{1}{6}E(8) = \frac{5111617}{6^8}$, et $E(0) = \frac{7}{6}E(1) - \frac{1}{6}E(7) = \frac{33495175}{10077696} \approx 3.3237$ (fraction irréductible car le numérateur finit par 5 et la somme de ses chiffres vaut 37).
+
+**H4.** Phase synchrone : `P`, `A1`, `S` (avec `T1`, `T2` en macrotâches, et `M1`, `cb1` (`R`), `async1`, `cbQ` en microtâches). Ensuite : `M1` ; `cb1` affiche `R` et retourne `Promise.resolve('X')` (ce qui planifie un `PromiseResolveThenableJob` avant de pouvoir résoudre la promesse chaînée) ; `async1` affiche `A2` et planifie `async2` sur `await p` ; `cbQ` affiche `Q` ; le job thenable planifie la résolution avec `'X'` ; `async2` affiche `A3` ; enfin `cb2` affiche `X`. Puis les macrotâches `T1` et `T2`.
+
+**H5.**
+- a) Sans arête à péage, les distances depuis $S$ donnent $S\text{-}A\text{-}E\text{-}T = 4 + 12 + 3 = 19$ (via $B\text{-}D$ ou $B\text{-}C\text{-}D$ on obtient au mieux 22).
+- b) Avec au plus une arête à péage, $S\text{-}B\text{-}A\text{-}E\text{-}T = 2 + 1 + 12 + 3 = 18$ (via $S\text{-}B$) et $S\text{-}A\text{-}C\text{-}D\text{-}E\text{-}T = 4 + 5 + 2 + 4 + 3 = 18$ (via $A\text{-}C$).
+
+**H6.**
+- a) À $t=45$, `a` est `retrying` et `b` n'a pas encore commencé ($t=50$), donc `working`.
+- b) À $t=130$, `b` (commencé à $t=50$, dernier événement à $t=60$) est sans activité depuis $70\text{ s} > 60\text{ s}$, donc `stalled`, et `a` prend son état.
+- c) À $t=300$, `b` se termine par `ok, question` donc `needs_input`, et `a` prend son état.
+- d) À $t=65$, `c` (dernier événement à $t=10$, soit $55\text{ s} \le 60\text{ s}$) est encore `working`, donc `s` est `working`.
+- e) À $t=75$, aucun événement de `s` ni de `c` depuis $65\text{ s} > 60\text{ s}$, donc `s` est `stalled`.
+- f) `d` a échoué à $t=20$ avec `HTTP 429 Too Many Requests`, donc `failed (quota)`.
+
+**H7.**
+- a) $v_5(2000!) = 400 + 80 + 16 + 3 = 499$, et $v_5(2005!) = 401 + 80 + 16 + 3 = 500$, donc $n = 2005$.
+- b) $\lambda(1000) = \text{ppcm}(2, 100) = 100$, donc $3^{2026} \equiv 3^{26} \pmod{1000}$. On a $3^{10} = 59049 \equiv 49$, $3^{20} \equiv 49^2 \equiv 401$, $3^6 = 729$, et $401 \times 729 \equiv 329 \pmod{1000}$.
+
+**H8.** Le nimber d'une pile de taille $n$ avec retraits $\{1, 2, 3\}$ est $n \bmod 4$. Pour $(3, 5, 7)$, les nimbers sont $(3, 1, 3)$, de somme nim $3 \oplus 1 \oplus 3 = 1 \ne 0$ : le premier joueur gagne en ramenant la somme nim à 0 (retirer 1 jeton de n'importe quelle pile).
+
+RÉPONSES
+H1: Ana=Rust/rouge/2 Bao=Go/jaune/3 Cyd=Python/vert/1 Dov=Java/bleu/4
+H2: 114
+H3: 33495175/10077696 ≈ 3.3237
+H4: P A1 S M1 R A2 Q A3 X T1 T2
+H5a: 19
+H5b: 18
+H6a: working
+H6b: stalled
+H6c: needs_input
+H6d: working
+H6e: stalled
+H6f: failed (quota)
+H7a: 2005
+H7b: 329
+H8: oui ; pile 3 -1, pile 5 -1, pile 7 -1

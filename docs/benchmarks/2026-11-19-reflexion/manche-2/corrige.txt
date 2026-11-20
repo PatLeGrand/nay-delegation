@@ -1,0 +1,9 @@
+H1: Ana=Rust/rouge/2 Bao=Go/jaune/3 Cyd=Python/vert/1 Dov=Java/bleu/4   (1 pt)
+H2: 114                                                                  (1 pt)
+H3: 33495175/10077696 ≈ 3.3237   (2 pts ; décimal seul juste : 1 pt)
+H4: P A1 S M1 R A2 Q A3 X T1 T2                                          (2 pts)
+H5a: 19   H5b: 18                                                        (1 pt chacun)
+H6: a working · b stalled · c needs_input · d working · e stalled · f failed (quota)  (0,5 chacun)
+H7a: 2005   H7b: 329                                                     (1 pt chacun)
+H8: oui ; pile 3 -1, pile 5 -1, pile 7 -1                                (2 pts ; 1 si oui sans la liste exacte)
+Total : 15

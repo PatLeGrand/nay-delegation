@@ -1,0 +1,29 @@
+[luna · gpt-6-luna/medium · 20.9s · in 16691 / out 686]
+callId : ec4d12b2-6ec8-4d72-8bee-2fff17f75081
+session : 01a1f6ab-d4bd-72e0-9204-a4f262a5e6b3
+P1. Si A est chevalier, B est fripon. B ment donc C et E sont de natures différentes. En combinant avec les affirmations de C et E, on obtient que C est chevalier et E fripon, puis D fripon. Mais D ment alors qu’il y a exactement un chevalier, ce qui est faux puisque A et C le sont. Contradiction. Donc A est fripon, B chevalier. E dit alors vrai si C est fripon ; B implique que C et E sont de même nature. La seule configuration cohérente est C et E fripons, D chevalier : les chevaliers sont B et D.
+
+P2. Avec des ouvriers illimités, le chemin critique dure A–B–E–F = 10 h (E attend aussi C, mais C finit à 4 h). Avec deux ouvriers, une planification de 12 h est possible : ouvrier 1 fait A, B, D ; ouvrier 2 fait G, C, E, F, H en respectant les prérequis. La chaîne A–B–D–F dure 10 h et l’enchaînement G–C–E–F–H impose au moins 12 h au total avec les contraintes de ressources.
+
+P3. Il y a 4×3×2 façons de choisir une boule de chaque couleur, sur C(9,3)=84 tirages ; la probabilité vaut 24/84 = 2/7.
+
+P4. `var i` est partagé par les trois fonctions fléchées et vaut 3 à leur appel ; `sort()` trie par chaînes ; `inc()` incrémente deux fois ; seuls 0 et `'a'` sont truthy dans le tableau. `NaN` a le type `"number"` et l’égalité flottante est fausse.
+
+P5. Il y a 333 multiples de 3, 200 de 5, dont 66 multiples de 15. Leur union compte 467. Parmi eux, 67 sont aussi divisibles par 7 : 47 multiples de 21, 28 de 35, moins 6 multiples de 105. Reste 400.
+
+P6. On retire l’auteur puis on prend le premier disponible dans la liste applicable : a) gemini-flash ; b) gemini-flash ; c) terra ; d) gemini-flash.
+
+P7. Les positions perdantes sont celles congrues à 0 modulo 3 : les coups disponibles de 1, 2 ou 4 permettent d’atteindre une position gagnante depuis toutes les autres. Comme 2026 ≡ 1 (mod 3), le premier joueur gagne en prenant 1 ou 4.
+
+RÉPONSES
+P1: BD
+P2a: 10
+P2b: 12
+P3: 2/7
+P4: 9 1,10,100,9 3 2 number false
+P5: 400
+P6a: gemini-flash
+P6b: gemini-flash
+P6c: terra
+P6d: gemini-flash
+P7: premier ; 1,4

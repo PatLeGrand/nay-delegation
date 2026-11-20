@@ -1,0 +1,19 @@
+[luna · gpt-6-luna/medium · 9.9s · in 17184 / out 180]
+callId : e05a435b-7329-4bf4-974e-48a6aec82705
+session : 01a1f6ae-715b-7741-82bb-a500b67f7a5b
+RÉPONSES
+H1: Ana=Rust/rouge/2 Bao=Python/vert/3 Cyd=Java/bleu/4 Dov=Go/jaune/1
+H2: 224
+H3: 1391/324 ≈ 4.2932
+H4: P A1 S M1 R A2 Q X A3 T1 T2
+H5a: 22
+H5b: 20
+H6a: working
+H6b: stalled
+H6c: needs_input
+H6d: working
+H6e: stalled
+H6f: failed (quota)
+H7a: 2000
+H7b: 729
+H8: oui ; pile 3 -1, pile 5 -3, pile 7 -1
