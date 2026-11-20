@@ -1,0 +1,86 @@
+[gemini-flash · gemini-3.8-flash-high/high · 133.6s · in 10986 / out 17876]
+callId : c28201b8-7e9b-4ef2-b788-78b10593ddad
+session : 28539dad-e9e7-4010-877b-1af6d22474a3
+### P1. Chevaliers et fripons
+- Si C est chevalier, E ment (E fripon). Si C est fripon, E dit vrai (E chevalier). Donc C et E sont toujours de natures opposées.
+- B affirme que C et E sont de même nature : son affirmation est fausse, donc **B est un fripon**.
+- A affirme que B est un fripon : c'est vrai, donc **A est un chevalier**.
+- Parmi {C, E}, il y a exactement un chevalier. Avec A, il y a donc au moins deux chevaliers.
+- L'affirmation de D (« exactement un chevalier ») est donc fausse : **D est un fripon**.
+- C affirme « A est un fripon ou D est un chevalier ». Les deux propositions étant fausses, l'affirmation de C est fausse : **C est un fripon**.
+- L'affirmation de E (« C est un fripon ») est donc vraie : **E est un chevalier**.
+- Les chevaliers sont **A** et **E**.
+
+---
+
+### P2. Ordonnancement des tâches
+- **a) Ouvriers illimités :**  
+  Le chemin critique est déterminé par A (3 h) $\to$ B (1 h) $\to$ D ou E (5 h) $\to$ F (1 h), soit $3 + 1 + 5 + 1 = 10\text{ h}$. Les autres tâches (G: 1 h, C: 1 h, H: 3 h) se terminent au plus tard à $t = 7\text{ h}$. La durée minimale est donc de **10 h**.
+- **b) Exactement 2 ouvriers :**  
+  Toutes les tâches sauf G dépendent de A (directement ou via C). De $t = 0$ à $t = 3$, seul A (3 h) et G (1 h) peuvent être exécutés ; le second ouvrier est donc forcé d'être inactif de $t = 1$ à $t = 3$. À $t = 3$, B et C sont exécutés en parallèle jusqu'à $t = 4$. À $t = 4$, D (5 h) et E (5 h) doivent tourner en parallèle pour permettre à F (1 h) de finir avant $t = 13$. H (3 h, non interruptible) ne peut débuter avant $t = 4$ et ne peut être inséré pendant l'exécution simultanée de D et E ($t \in [4, 9]$). Un ouvrier prend D puis H ($[4, 9]$ puis $[9, 12]$), l'autre prend E puis F ($[4, 9]$ puis $[9, 10]$). La durée minimale est de **12 h**.
+
+---
+
+### P3. Tirage sans remise
+- Nombre total de tirages possibles de 3 boules parmi 9 :  
+  $$\binom{9}{3} = \frac{9 \times 8 \times 7}{3 \times 2 \times 1} = 84$$
+- Tirages contenant exactement 1 rouge, 1 bleue et 1 verte :  
+  $$\binom{4}{1} \times \binom{3}{1} \times \binom{2}{1} = 4 \times 3 \times 2 = 24$$
+- Probabilité : $\frac{24}{84} = \frac{2}{7}$.
+
+---
+
+### P4. Exécution JavaScript
+- La variable `i` est déclarée avec `var` (portée fonction/globale), sa valeur finale après la boucle est `3` ; les 3 fonctions renvoient toutes `3`, donc `total` vaut $3 + 3 + 3 = 9$.
+- `.sort()` sans argument trie par ordre lexicographique (chaînes de caractères) : `[1, 10, 100, 9]`.
+- `obj.inc().inc()` incrémente deux fois la propriété `n`, qui passe de `1` à `3`.
+- `filter(Boolean)` ne conserve que les valeurs « truthy » (seul `'a'` l'est, `0`, `''` et `null` étant falsy), d'où une longueur de `1`.
+- `typeof NaN` vaut `"number"`.
+- `0.1 + 0.2 === 0.3` vaut `false` en virgule flottante IEEE 754.
+
+---
+
+### P5. Divisibilité
+Sur l'ensemble $\{1, \dots, 1000\}$ :
+- Divisibles par 3 : $\lfloor 1000/3 \rfloor = 333$
+- Divisibles par 5 : $\lfloor 1000/5 \rfloor = 200$
+- Divisibles par 15 : $\lfloor 1000/15 \rfloor = 66$
+- Divisibles par 3 ou 5 : $333 + 200 - 66 = 467$
+- Divisibles par 7 parmi ceux-ci :
+  - Par 21 ($3 \times 7$) : $\lfloor 1000/21 \rfloor = 47$
+  - Par 35 ($5 \times 7$) : $\lfloor 1000/35 \rfloor = 28$
+  - Par 105 ($3 \times 5 \times 7$) : $\lfloor 1000/105 \rfloor = 9$
+  - Total : $47 + 28 - 9 = 66$
+- Résultat final : $467 - 66 = 401$.
+
+---
+
+### P6. Choix d'un relecteur
+- **a)** Auteur terra $\to$ liste : `[hydrogen, sonnet, gemini-flash]`. `hydrogen` et `sonnet` sont indisponibles $\to$ **gemini-flash**.
+- **b)** Auteur hydrogen $\to$ liste : `[terra, gemini-flash]`. `terra` est indisponible $\to$ **gemini-flash**.
+- **c)** Auteur sol $\to$ pas de liste propre, liste par défaut : `[hydrogen, terra, sonnet, gemini-flash]`. `hydrogen` est indisponible $\to$ **terra**.
+- **d)** Auteur sonnet $\to$ liste par défaut privée de l'auteur : `[hydrogen, terra, gemini-flash]`. `hydrogen` et `terra` sont indisponibles $\to$ **gemini-flash**.
+
+---
+
+### P7. Jeu de jetons
+- Les coups permis sont $1, 2, 4 \not\equiv 0 \pmod 3$.
+- Tout coup depuis une position multiple de 3 mène à une position non multiple de 3. Réciproquement, depuis toute position non multiple de 3, il existe au moins un coup menant à un multiple de 3 (retirer 1 ou 4 si $n \equiv 1 \pmod 3$, retirer 2 si $n \equiv 2 \pmod 3$).
+- Les positions perdantes ($P$) sont donc les multiples de 3.
+- $2026 = 3 \times 675 + 1 \equiv 1 \pmod 3$ : c'est une position gagnante pour le **premier** joueur.
+- Coups gagnants : laisser un multiple de 3 ($2026 - 1 = 2025$ et $2026 - 4 = 2022$), soit retirer **1** ou **4** jetons.
+
+---
+
+RÉPONSES
+P1: AE
+P2a: 10
+P2b: 12
+P3: 2/7
+P4: 9 1,10,100,9 3 1 number false
+P5: 401
+P6a: gemini-flash
+P6b: gemini-flash
+P6c: terra
+P6d: gemini-flash
+P7: premier ; 1, 4
