@@ -6,6 +6,18 @@ import {
 } from '../format.js';
 import { buildStoryRelays } from '../model.js';
 
+function renderStoryChecks(report) {
+  const failed = report.status === 'CONTRÔLES';
+  return el('div', { class: failed ? 'callout callout--danger' : 'small' },
+    el('span', { class: 'small mono muted' }, `Story ${report.storyId}`),
+    failed ? el('strong', null, 'Contrôles en échec') : null,
+    report.checks ? el('p', null, `Contrôles : ${report.checks} `,
+      report.checksBy === 'nay' ? el('span', { class: 'badge badge-info' }, 'vérifiés par Nay') : null,
+      report.checksBy === 'dev' ? el('span', { class: 'badge badge-warn' }, 'déclarés, non vérifiés') : null,
+    ) : null,
+  );
+}
+
 function renderRelayCard(story, state, actions) {
   const mockDecision = state.mockDecisions[story.name];
   const effectiveState = mockDecision === 'merge' ? 'fusionnee' : mockDecision === 'changes' ? 'en_cours' : story.state;
@@ -18,7 +30,7 @@ function renderRelayCard(story, state, actions) {
       el('div', { class: 'story-card__title-block' },
         el('div', { class: 'story-card__title-row' },
           el('h3', { class: 'story-card__title' }, story.title ?? story.name),
-          el('span', { class: `state-pill state-pill--${effectiveState}` }, stateLabel),
+          story.hasDoc || !story.storyChecks.length ? el('span', { class: `state-pill state-pill--${effectiveState}` }, stateLabel) : null,
           mockDecision ? mockBadge(mockDecision === 'merge' ? 'Fusion simulée' : 'Correction simulée') : null,
         ),
         el('div', { class: 'story-card__meta mono muted' },
@@ -81,7 +93,7 @@ function renderRelayCard(story, state, actions) {
       : null,
 
     // Rail des verdicts + tests
-    (story.verdicts.length > 0 || story.tests || story.final)
+    (story.verdicts.length > 0 || story.tests || story.final || story.storyChecks.length > 0)
       ? el('div', { class: 'story-card__verdicts' },
         story.verdicts.length > 0
           ? el('div', { class: 'verdict-rail', 'aria-label': 'Historique des verdicts' },
@@ -91,6 +103,7 @@ function renderRelayCard(story, state, actions) {
             ),
           )
           : null,
+        ...story.storyChecks.map(renderStoryChecks),
         story.tests ? el('p', { class: 'small muted' }, `Tests : ${story.tests}`) : null,
         story.final ? el('p', { class: 'small' }, story.final) : null,
       )
@@ -118,6 +131,7 @@ function renderRelayCard(story, state, actions) {
 export function renderRelais(state, actions) {
   const stories = buildStoryRelays({
     features: state.features ?? [],
+    storyChecks: state.storyChecks,
     usage: state.usage,
     status: state.status,
     featureFilter: state.feature,

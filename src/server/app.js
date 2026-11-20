@@ -7,7 +7,7 @@ import { readQuotas, isAgentAvailable, quotaAgentConfig } from '../quota/index.j
 import { loadMonitorConfig } from '../monitor/config.js';
 import { aggregateUsage } from './usage.js';
 import { readStatus } from './status.js';
-import { readCall } from './calls.js';
+import { readCall, readStoryChecks } from './calls.js';
 import { readFeatures } from './features.js';
 import { readDelegation, readLayered, resetDelegation, writeDelegation } from './delegation.js';
 import { addRole, deleteRole, updateRole } from './roles.js';
@@ -66,6 +66,7 @@ async function readApi(pathname, params, context) {
     if (!call) throw httpError(404, 'Appel inconnu');
     return call;
   }
+  if (pathname === '/api/story-checks') return readStoryChecks(dataRoot, monitorConfig.eventsDir);
   if (pathname === '/api/features') return readFeatures(root, config.featuresDir);
   if (pathname === '/api/delegation') return readDelegation(root, userDir);
   if (pathname === '/api/agents') return listAgents(root, userDir);

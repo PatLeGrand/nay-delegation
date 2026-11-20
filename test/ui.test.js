@@ -110,6 +110,18 @@ test('relais : priorise les fiches en attente de décision et relie les appels',
   assert.equal(relays[1].name, 'done');
 });
 
+test('relais : rattache les contrôles à chaque story, même sans fiche ni appel', () => {
+  const dev = { storyId: 'a', feature: 'interface', status: 'OK', checks: 'tests ok', checksBy: 'dev' };
+  const nay = { storyId: 'b', feature: 'interface', status: 'CONTRÔLES', checks: 'lint ÉCHEC', checksBy: 'nay' };
+  const sansFiche = { storyId: 'c', feature: 'outil', status: 'CONTRÔLES', checksBy: null };
+  const data = { features: [{ name: 'interface' }, { name: 'ancienne' }], storyChecks: [dev, nay, sansFiche] };
+  const relays = new Map(buildStoryRelays(data).map((story) => [story.name, story]));
+  assert.deepEqual(relays.get('interface').storyChecks, [dev, nay]);
+  assert.deepEqual(relays.get('ancienne').storyChecks, []);
+  assert.deepEqual(relays.get('outil').storyChecks, [sansFiche]);
+  assert.deepEqual(buildStoryRelays({ ...data, featureFilter: 'outil' }).map((story) => story.name), ['outil']);
+});
+
 test('simulateur d’aiguillage : exclut auteur, indisponibles simulés et quotas sous seuil', () => {
   const delegation = {
     developpeur: ['sol', 'sonnet'],

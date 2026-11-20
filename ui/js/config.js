@@ -23,6 +23,7 @@ export const API = {
   quota: '/api/quota',
   status: '/api/status',
   features: '/api/features',
+  storyChecks: '/api/story-checks',
   delegation: '/api/delegation',
   delegationPerso: '/api/delegation/perso',
   roles: '/api/roles',

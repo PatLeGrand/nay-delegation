@@ -183,7 +183,7 @@ export function buildDailySpectrum(byDay = [], nowMs = Date.now(), days = HISTOG
  * Corrèle les fiches de fonctionnalités (/api/features) avec les appels récents (/api/usage)
  * et les appels du jour (/api/status) pour raconter le passage de relais de chaque story.
  */
-export function buildStoryRelays({ features = [], usage, status, featureFilter = '' }) {
+export function buildStoryRelays({ features = [], storyChecks = [], usage, status, featureFilter = '' }) {
   const byName = new Map();
 
   for (const f of features) {
@@ -202,19 +202,14 @@ export function buildStoryRelays({ features = [], usage, status, featureFilter =
       state: f.state ?? 'en_cours',
       waitingForUser: Boolean(f.waitingForUser),
       hasDoc: true,
+      storyChecks: [],
       calls: [],
       tokens: 0,
       durationMs: 0,
     });
   }
 
-  const seenCallIds = new Set();
-  const attachCall = (raw, isLive = false) => {
-    const key = raw.feature ?? NO_FEATURE_LABEL;
-    if (featureFilter && raw.feature !== featureFilter) return;
-    if (raw.callId && seenCallIds.has(raw.callId)) return;
-    if (raw.callId) seenCallIds.add(raw.callId);
-
+  const relayFor = (key) => {
     if (!byName.has(key)) {
       byName.set(key, {
         name: key,
@@ -228,15 +223,30 @@ export function buildStoryRelays({ features = [], usage, status, featureFilter =
         tests: null,
         decision: null,
         final: null,
-        state: raw.status === 'running' ? 'en_cours' : 'en_cours',
+        state: 'en_cours',
         waitingForUser: false,
         hasDoc: false,
+        storyChecks: [],
         calls: [],
         tokens: 0,
         durationMs: 0,
       });
     }
-    const entry = byName.get(key);
+    return byName.get(key);
+  };
+
+  for (const report of storyChecks) {
+    relayFor(report.feature ?? NO_FEATURE_LABEL).storyChecks.push(report);
+  }
+
+  const seenCallIds = new Set();
+  const attachCall = (raw, isLive = false) => {
+    const key = raw.feature ?? NO_FEATURE_LABEL;
+    if (featureFilter && raw.feature !== featureFilter) return;
+    if (raw.callId && seenCallIds.has(raw.callId)) return;
+    if (raw.callId) seenCallIds.add(raw.callId);
+
+    const entry = relayFor(key);
     const u = raw.usage ?? {};
     const callTokens = (u.input ?? 0) + (u.output ?? 0);
     entry.tokens += callTokens;

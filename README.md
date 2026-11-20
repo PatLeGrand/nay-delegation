@@ -331,7 +331,9 @@ clair/sombre, `Échap` pour fermer la boîte noire) :
 - **Orbite** (`1`) : planétarium interactif (cliquer un astre ouvre son dossier et filtre la
   télémétrie), ruban d’alertes, bande télémétrique SSE en direct, vols en cours et réservoirs de quotas.
 - **Relais** (`2`) : trajectoires horizontales des stories (`dev → revue → reprise → fusionnée`),
-  verdicts et fiches complètes, avec sas de décision en tête.
+  verdicts et fiches complètes, avec sas de décision en tête. La ligne « Contrôles » affiche le
+  résumé et son origine (« vérifiés par Nay » ou « déclarés, non vérifiés »). Une story arrêtée
+  au statut `CONTRÔLES` porte la mention « Contrôles en échec ».
 - **Chronographe** (`3`) : frise UTC du jour cliquable, spectre empilé sur 14 jours (entrée neuve,
   cache relu, sortie), répartitions et autopsie de fiabilité.
 - **Aiguillage** (`4`) : cascades de priorité par rôle réordonnables par glisser-déposer ou au
