@@ -5,7 +5,7 @@ import {
   REFRESH_MS, SSE_RECONNECT_MS, THEME_KEY, THEMES, VIEWS,
 } from './js/config.js';
 import {
-  buildQuery, createAgent, deleteAgent, fetchAgents, fetchCall, fetchDelegation, fetchFeatures,
+  buildQuery, getJson, createAgent, deleteAgent, fetchAgents, fetchCall, fetchDelegation, fetchFeatures,
   fetchModels, fetchQuota, fetchStatus, fetchUsage, refreshModels, resumeCall, saveDelegation, updateAgent,
   resetDelegation, createRole, updateRole, deleteRole,
 } from './js/api.js';
@@ -43,6 +43,7 @@ const state = {
   quota: null,
   status: null,
   features: [],
+  storyChecks: [],
   delegation: null,
   agents: null,
   models: null,
@@ -146,6 +147,7 @@ function toggleTheme() {
 
 function updateFeatureOptions() {
   const names = new Set(state.allFeaturesList);
+  for (const story of state.storyChecks) if (story.feature) names.add(story.feature);
   for (const f of state.features ?? []) if (f.name) names.add(f.name);
   for (const r of state.usage?.byFeature ?? []) if (r.key) names.add(r.key);
   for (const c of state.status?.calls ?? []) if (c.feature) names.add(c.feature);
@@ -269,6 +271,23 @@ async function refreshAll({ includeSlow = true } = {}) {
   ));
 }
 
+let storyChecksRequest = 0;
+
+async function refreshStoryChecks() {
+  const request = ++storyChecksRequest;
+  try {
+    const checks = await getJson(API.storyChecks);
+    if (request !== storyChecksRequest) return;
+    state.storyChecks = checks;
+    delete state.apiErrors.storyChecks;
+    updateFeatureOptions();
+  } catch (error) {
+    if (request !== storyChecksRequest) return;
+    state.apiErrors.storyChecks = error.message;
+  }
+  if (state.view === 'relais') render();
+}
+
 function connectSse() {
   if (sseSource) {
     sseSource.close();
@@ -288,12 +307,14 @@ function connectSse() {
 
   sseSource.addEventListener('open', () => {
     state.sseState = 'open';
+    if (state.view === 'relais') void refreshStoryChecks();
     if (state.view === 'orbite') render();
   });
 
   sseSource.addEventListener('agent', (event) => {
     let payload;
     try { payload = JSON.parse(event.data); } catch { return; }
+    if (payload.kind === 'story_end' && state.view === 'relais') void refreshStoryChecks();
     state.liveEvents.unshift(payload);
     if (state.liveEvents.length > LIVE_TAPE_LIMIT) state.liveEvents.length = LIVE_TAPE_LIMIT;
 
@@ -389,6 +410,7 @@ const actions = {
   setView(viewId) {
     if (!RENDERERS[viewId]) return;
     state.view = viewId;
+    if (viewId === 'relais') void refreshStoryChecks();
     render();
   },
 

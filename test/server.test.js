@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, appendFile, rename, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import http from 'node:http';
 import { once } from 'node:events';
 import { PassThrough, Readable } from 'node:stream';
@@ -137,6 +137,11 @@ async function httpChecks(t, memory) {
   assert.equal(JSON.parse((await f.request('/api/usage?feature=serveur')).text).totals.input, 200);
   assert.equal((await f.request('/api/usage?since=invalide')).status, 400);
   assert.deepEqual(JSON.parse((await f.request('/api/features')).text), []);
+  const checks = { ts: '2026-11-16T12:00:00Z', storyId: 's1', feature: 'serveur',
+    status: 'CONTRÔLES', checks: 'lint ÉCHEC', checksBy: 'nay' };
+  await writeFile(join(dirname(f.file), '2026-11-16.1.jsonl'),
+    JSON.stringify({ kind: 'story_end', ...checks, detail: 'rapport complet' }));
+  assert.deepEqual(JSON.parse((await f.request('/api/story-checks')).text), [checks]);
   const headers = { Origin: f.origin, 'Content-Type': 'application/json' };
   assert.equal((await f.request('/api/delegation', { method: 'PUT', body: '{}' })).status, 403);
   assert.equal((await f.request('/api/delegation', { method: 'PUT', headers: { ...headers, Origin: 'http://evil.example' }, body: '{}' })).status, 403);
