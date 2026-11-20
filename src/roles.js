@@ -77,7 +77,11 @@ export function rolePrompt(role, brief) {
 
 function usageLine(id, role) {
   const run = `nay role ${id} <brief> --cwd <projet>${role.mode === 'read' ? ' --diff HEAD' : ''}`;
-  if (role.usage === 'toujours') return `Toujours : lance-le à chaque travail concerné, sans demander (${run}).`;
+  if (role.usage === 'toujours') {
+    return role.mode === 'read'
+      ? `Toujours : lancé automatiquement par \`nay story\` après la relecture ; hors story, lance-le sans demander (${run}).`
+      : `Toujours : lance-le à chaque travail concerné, sans demander (${run}).`;
+  }
   if (role.usage === 'sur-demande') return 'Seulement quand l’utilisateur le demande explicitement.';
   if (role.usage === 'proposer') return `Après le travail concerné, propose-le en une ligne ; lance-le s’il accepte (${run}).`;
   return 'Règle pas encore fixée : ne le lance pas, pose d’abord la question ci-dessous.';

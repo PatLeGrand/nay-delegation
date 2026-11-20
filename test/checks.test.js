@@ -23,7 +23,9 @@ async function withProject(content, fn) {
 const node = (code) => `"${process.execPath}" -e "${code}"`;
 
 test('config/checks.json est valide', () => {
-  assert.equal(typeof loadChecksConfig().projectFile, 'string');
+  const loaded = loadChecksConfig();
+  assert.equal(typeof loaded.projectFile, 'string');
+  assert.equal(loaded.baseline, true);
 });
 
 test('loadChecks : absent → null ; nom et délai par défaut', async () => {

@@ -10,10 +10,11 @@ export function loadChecksConfig() {
   const positive = ['defaultTimeoutSec', 'maxOutputChars'];
   if (typeof config.projectFile !== 'string' || !config.projectFile
     || !positive.every((key) => Number.isFinite(config[key]) && config[key] > 0)
+    || (config.baseline !== undefined && typeof config.baseline !== 'boolean')
     || (config.env !== undefined && (typeof config.env !== 'object' || config.env === null))) {
     throw new Error('config/checks.json invalide');
   }
-  return config;
+  return { baseline: true, ...config };
 }
 
 // Lit les contrôles déclarés par le projet ; null si le projet n'en déclare pas.

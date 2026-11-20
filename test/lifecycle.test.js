@@ -69,6 +69,8 @@ test('Story : état tiré de ses appels puis de story_end', () => {
   assert.equal(state(ok, 's1', 90).state, 'done');
   const defects = state(build([...working, story('story_end', 90, { status: 'DÉFAUTS', code: 1 })]), 's1', 90);
   assert.deepEqual([defects.state, defects.cause], ['failed', 'defects']);
+  const redBase = state(build([story('story_start', 0), story('story_end', 2, { status: 'BASE ROUGE', code: 1 })]), 's1', 2);
+  assert.deepEqual([redBase.state, redBase.cause], ['failed', 'red_base']);
   assert.equal(state(build([...working, story('story_end', 90, { status: 'BLOQUÉ', code: 1, question: true })]), 's1', 90).state, 'needs_input');
   assert.deepEqual(featureJobs(ok, 'f'), ['s1']);
 });
@@ -82,7 +84,8 @@ test('runStory écrit story_start / story_end et transmet le storyId à ses appe
   };
   const git = { isRepo: async () => true, snapshot: async () => 'x', status: async () => '' };
   const report = await runStory('brief', { storyId: 'abc', journal: (event) => events.push(event), execute, git,
-    feature: 'f', delegation: { developpeur: ['sol'], relecteur: { parDefaut: ['terra'] } } });
+    checker: { load: async () => null }, feature: 'f',
+    delegation: { developpeur: ['sol'], relecteur: { parDefaut: ['terra'] } } });
   assert.deepEqual(events.map((event) => event.kind), ['story_start', 'story_end']);
   assert.deepEqual(seen, ['abc']);
   assert.equal(report.storyId, 'abc');

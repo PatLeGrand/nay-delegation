@@ -73,7 +73,7 @@ facultatives pour l'agent, un accès (lecture seule ou écriture), un ordre de m
 
 | Règle | L'orchestrateur… |
 |---|---|
-| `toujours` | le lance à chaque travail concerné, sans demander |
+| `toujours` | en lecture seule : lancé automatiquement par `nay story` après la relecture (et par `nay role` hors story) ; en écriture : lancé à chaque travail concerné, sans demander |
 | `sur-demande` | le lance seulement quand l'utilisateur le demande |
 | `proposer` | le propose en une ligne après le travail concerné |
 | aucune | pose la question avec ces trois réponses, puis enregistre le choix |
@@ -142,20 +142,26 @@ agent et ne consomment aucun jeton.
 ## Enchaîner dev et revue (`nay story`)
 
 ```bash
-node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>] [--dev <agent>]
+node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles]
 ```
 
 Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier :
 
-1. Choisit un `developpeur` selon les quotas (ou celui imposé par `--dev`, sans bascule) et lui donne le brief. Si l'agent échoue
+1. Si `.nay/checks.json` existe (et `baseline` vaut `true` dans `config/checks.json`), vérifie d'abord
+   que la base est saine avant d'appeler le dev ; en cas d'échec, la story s'arrête en `BASE ROUGE`
+   (code 1, sans appel d'agent). `--skip-baseline` passe outre (ex. story qui répare ces tests).
+2. Choisit un `developpeur` selon les quotas (ou celui imposé par `--dev`, sans bascule) et lui donne le brief. Si l'agent échoue
    **sans avoir modifié de fichier** (lancement, quota, délai, réponse vide), Nay passe au
    suivant ; s'il a déjà modifié des fichiers, Nay s'arrête.
-2. Dans un dépôt git, committe les fichiers annoncés par le dev (voir `--commit`).
+3. Dans un dépôt git, committe les fichiers annoncés par le dev (voir `--commit`).
    Hors dépôt git, pas de commit : le relecteur lit les fichiers modifiés.
-3. Choisit un `relecteur` qui n'est pas l'auteur, en lecture seule ; il finit par
+4. Choisit un `relecteur` qui n'est pas l'auteur, en lecture seule ; il finit par
    `NAY-VERDICT: PASS` ou `CHANGES`. Un relecteur en échec cède la place au suivant.
-4. Si `CHANGES` : reprend la session du dev avec les constats, recommite, nouvelle revue,
-   jusqu'à `--rounds` tours (2 par défaut).
+5. Après un `PASS`, lance chaque rôle perso lecture seule réglé sur `toujours` (hors auteur du code ;
+   un rôle sans modèle disponible est sauté sans bloquer ; les rôles en écriture ne sont jamais
+   lancés par la story ; `--no-roles` désactive cette étape).
+6. Si `CHANGES` (relecteur ou rôle perso) : reprend la session du dev avec les constats, recommite,
+   nouvelle relecture complète, jusqu'à `--rounds` tours (2 par défaut).
 
 ### Contrôles lancés par Nay
 
@@ -178,7 +184,7 @@ chaque travail du dev, avant la relecture, au lieu de croire le résultat annonc
 - Sans ce fichier, Nay demande au dev la ligne `NAY-CHECKS:` comme avant, et l'affiche
   « déclarés par le dev, non vérifiés ». Un fichier invalide arrête la story avant tout appel.
 
-Délai par défaut, taille de la sortie gardée et variables d'environnement (`CI=1`) :
+Délai par défaut, vérification initiale (`baseline`, `true` par défaut), taille de la sortie gardée et variables d'environnement (`CI=1`) :
 `config/checks.json`. Ces commandes sont exécutées telles quelles : ne lancer `nay story` que sur
 des projets dont on connaît le `.nay/checks.json`.
 
@@ -224,7 +230,7 @@ appel 1d917a8b-… · needs_input · haiku · feature quotas · 3 s
 
 États déduits du journal d'événements : `accepted`, `working`, `stalled`, `needs_input`
 (l'agent finit sur une question), `done`, `failed` avec une cause (`quota`, `timeout`,
-`shell_blocked`, `empty`, `crash` ; pour une story `no_agent`, `blocked`, `defects`).
+`shell_blocked`, `empty`, `crash` ; pour une story `no_agent`, `blocked`, `defects`, `checks`, `red_base`).
 `--feature` suit les travaux de la fonctionnalité en cours au lancement ou qui commencent
 ensuite : on peut attendre une story lancée en arrière-plan sans connaître son identifiant.
 Un travail déjà terminé au lancement n'est suivi qu'avec `--since` (commencé depuis cette
