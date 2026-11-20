@@ -15,6 +15,7 @@ import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js'
 import { loadEventConfig, readConfig, repositoryRoot } from './config.js';
 import { createJournal } from './eventLog.js';
 import { waitCommand } from './wait.js';
+import { diagnoseCommand } from './diagnose.js';
 import { guideCommand, roleCommand, usageCommand } from './roleCommands.js';
 import { loadRoles } from './roles.js';
 import { readLayer, userConfigDir } from './userConfig.js';
@@ -31,6 +32,7 @@ const USAGE = `Usage :
   nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>] [--dev <agent>]
   nay wait <id>... | --feature <nom> [--feature <nom>...] [--since 10m|<ISO>]
       [--until done,failed,needs_input] [--all] [--timeout <min>]
+  nay diagnose <storyId|callId> [--explain]   (chronologie et cause d'un échec ; --explain : avis d'un explorateur)
   nay role <rôle> <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--diff <révision>] [--commit]
   nay guide   (consignes de l'orchestrateur : rôles perso, règles, questions à poser)
   nay usage <rôle> toujours|sur-demande|proposer|demander
@@ -181,7 +183,7 @@ async function readStdin(stream) {
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
   committer = commitAndRecord, storyRunner = runStory, updater = runUpdate,
-  catalog = createCatalog({ root: repositoryRoot() }), waitOptions = {} } = {}) {
+  catalog = createCatalog({ root: repositoryRoot() }), waitOptions = {}, diagnoseOptions = {} } = {}) {
   try {
     if (args[0] === 'update') {
       if (args.length !== 1) throw new Error(USAGE);
@@ -211,6 +213,10 @@ export async function runCommand(args, { input = process.stdin, output = process
     }
     if (args[0] === 'models') return await modelsCommand(args.slice(1), output, catalog);
     if (args[0] === 'wait') return await waitCommand(args.slice(1), { output, now, ...waitOptions });
+    if (args[0] === 'diagnose') {
+      return await diagnoseCommand(args.slice(1), { output, now, execute,
+        availability: () => quotaAvailability(quotasReader), ...diagnoseOptions });
+    }
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
       'read-only': { type: 'boolean', default: false },
       feature: { type: 'string' }, role: { type: 'string' }, cwd: { type: 'string' },

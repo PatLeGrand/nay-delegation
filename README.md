@@ -96,6 +96,9 @@ Les rôles intégrés (`explorateur`, `developpeur`, `relecteur`…) gardent leu
 npm test
 ```
 
+La CI GitHub (`.github/workflows/tests.yml`) lance les mêmes tests sous Node 22 et 24 à chaque
+push sur `main` et à chaque pull request.
+
 ## Appeler un agent
 
 ```bash
@@ -231,6 +234,40 @@ Un travail déjà terminé au lancement n'est suivi qu'avec `--since` (commencé
 durée ou date) ; `--feature` se répète pour attendre plusieurs lots en une commande.
 Codes de sortie : `0` état atteint, `1` erreur ou identifiant inconnu, `2` délai dépassé.
 Contrat complet : [docs/cycle-de-vie.md](docs/cycle-de-vie.md) ; réglages dans `config/lifecycle.json`.
+
+## Comprendre un échec (`nay diagnose`)
+
+```bash
+node bin/nay.js diagnose <storyId|callId>             # chronologie et diagnostic, sans IA
+node bin/nay.js diagnose <storyId|callId> --explain   # + explication par un explorateur
+```
+
+Relit le journal d'événements et affiche la chronologie compacte du travail (début et fin de la
+story, chaque appel avec agent, rôle, mode, durée, statut, cause, reprises, erreur masquée ;
+verdicts, contrôles et commits), puis un diagnostic mécanique : où ça s'est arrêté et pourquoi
+(cause, agent sauté pour quota, question finale du dev, absence de fin…).
+
+```text
+Story s1 · feature f · état failed (defects)
+  2026-11-19 10:00:00 début
+  10:00:01 appel d1 · sol · dev · write · 2 s · error (quota) · outils 0
+      erreur : You have hit your usage limit
+  10:00:04 appel d2 · sonnet · dev · write · 56 s · ok · outils 12
+  10:01:01 appel r1 · hydrogen · relecteur · read · 9 s · ok · outils 3
+  10:01:11 fin · DÉFAUTS (defects) · code 1 · 1 min
+      dev : sonnet · revues : hydrogen CHANGES (tour 1)
+      contrôles : tests ok (nay) · commits : abc1234 Ajout
+
+Diagnostic :
+- Arrêt : DÉFAUTS (defects) — Défauts restants après 1 tours de revue.
+- Sauté : sol (dev, quota) — You have hit your usage limit
+```
+
+`--explain` envoie ce rapport (jamais les prompts ni les fichiers) à un agent du rôle
+`explorateur`, choisi selon les quotas réels comme `nay choose`, en lecture seule, et affiche
+son explication et l'action conseillée sous la chronologie. Identifiant absent du journal :
+code `1`. Réglages dans `config/diagnose.json` (jours de journal parcourus, taille maximale du
+rapport envoyé, longueur des erreurs et messages cités).
 
 ## Reprendre une session
 
