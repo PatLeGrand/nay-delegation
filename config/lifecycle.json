@@ -1,0 +1,7 @@
+{
+  "pollMs": 1000,
+  "defaultTimeoutMin": 60,
+  "appearGraceSec": 30,
+  "defaultUntil": ["done", "failed", "needs_input"],
+  "quotaPattern": "quota|rate[ _-]?limit|usage limit|too many requests|\\b429\\b|resource[ _]exhausted|credit balance"
+}
