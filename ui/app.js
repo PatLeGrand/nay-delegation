@@ -2,15 +2,16 @@
 import {
   API, CALL_LIVE_REFRESH_MS, CALL_LOAD_ATTEMPTS, CALL_LOAD_RETRY_MS,
   DEFAULT_PERIOD, DEFAULT_VIEW, LIVE_TAPE_LIMIT, LIVE_TICK_MS, PERIODS,
-  REFRESH_MS, SSE_RECONNECT_MS, THEME_KEY, THEMES, VIEWS,
+  PROJECT_KEY, REFRESH_MS, SSE_RECONNECT_MS, THEME_KEY, THEMES, VIEWS,
 } from './js/config.js';
 import {
   buildQuery, getJson, createAgent, deleteAgent, fetchAgents, fetchCall, fetchDelegation, fetchFeatures,
-  fetchModels, fetchQuota, fetchStatus, fetchUsage, refreshModels, resumeCall, saveDelegation, updateAgent,
+  fetchModels, fetchProjects, fetchQuota, fetchStatus, fetchUsage, refreshModels, resumeCall, saveDelegation, updateAgent,
   resetDelegation, createRole, updateRole, deleteRole,
 } from './js/api.js';
 import { el, mount } from './js/dom.js';
 import { computeSinceIso, formatDuration } from './js/format.js';
+import { featureNames, filterByProject, projectOptions } from './js/model.js';
 import { renderOrbite } from './js/views/orbite.js';
 import { renderRelais } from './js/views/relais.js';
 import { renderChronographe } from './js/views/chronographe.js';
@@ -30,6 +31,7 @@ const RENDERERS = {
 
 const state = {
   view: DEFAULT_VIEW,
+  project: '',
   feature: '',
   period: DEFAULT_PERIOD,
   theme: 'dark',
@@ -42,6 +44,7 @@ const state = {
   usage: null,
   quota: null,
   status: null,
+  projects: [],
   features: [],
   storyChecks: [],
   delegation: null,
@@ -96,6 +99,7 @@ const state = {
 
 const dom = {
   nav: document.getElementById('main-nav'),
+  projectSelect: document.getElementById('filter-project'),
   featureSelect: document.getElementById('filter-feature'),
   periodSelect: document.getElementById('filter-period'),
   themeBtn: document.getElementById('theme-toggle'),
@@ -110,6 +114,9 @@ let sseSource = null;
 let sseReconnectTimer = null;
 let statusDebounceTimer = null;
 let inspectorRefreshTimer = null;
+let featureCards = [];
+let storyReports = [];
+const latestRequests = new Map();
 
 function notify(message, tone = 'info') {
   const toast = el('div', { class: `toast toast--${tone}`, role: 'status' }, message);
@@ -145,20 +152,47 @@ function toggleTheme() {
   applyTheme();
 }
 
-function updateFeatureOptions() {
-  const names = new Set(state.allFeaturesList);
-  for (const story of state.storyChecks) if (story.feature) names.add(story.feature);
-  for (const f of state.features ?? []) if (f.name) names.add(f.name);
-  for (const r of state.usage?.byFeature ?? []) if (r.key) names.add(r.key);
-  for (const c of state.status?.calls ?? []) if (c.feature) names.add(c.feature);
-  state.allFeaturesList = [...names].sort();
+function applyProjectFilter() {
+  state.features = filterByProject(featureCards, state.project);
+  state.storyChecks = filterByProject(storyReports, state.project);
+}
 
-  const current = state.feature;
-  mount(dom.featureSelect,
-    el('option', { value: '' }, 'Toutes les fonctionnalités'),
-    ...state.allFeaturesList.map((name) => el('option', { value: name, selected: name === current }, name)),
-  );
-  dom.featureSelect.value = current;
+function setProject(project) {
+  if (project === state.project) return;
+  state.project = project;
+  try { localStorage.setItem(PROJECT_KEY, project); } catch { /* ignore */ }
+  state.feature = '';
+  state.allFeaturesList = [];
+  state.usage = null;
+  state.status = null;
+  state.liveEvents = [];
+  actions.closeCall();
+  applyProjectFilter();
+  updateFeatureOptions();
+  connectSse();
+  render();
+  void refreshAll({ includeSlow: false });
+}
+
+function updateProjectOptions() {
+  const options = projectOptions(state.projects);
+  if (!options.some(({ value }) => value === state.project)) setProject('');
+  mount(dom.projectSelect, ...options.map(({ value, label }) => el('option', { value }, label)));
+  dom.projectSelect.value = state.project;
+}
+
+function updateFeatureOptions() {
+  state.allFeaturesList = featureNames(state);
+
+  const select = dom.featureSelect;
+  const names = state.allFeaturesList;
+  if (select.options.length !== names.length + 1 || names.some((name, index) => select.options[index + 1].value !== name)) {
+    mount(select,
+      el('option', { value: '' }, 'Toutes les fonctionnalités'),
+      ...names.map((name) => el('option', { value: name }, name)),
+    );
+  }
+  if (select.value !== state.feature) select.value = state.feature;
 }
 
 function renderNav() {
@@ -230,14 +264,15 @@ function restoreFocus(focus) {
   try { if (focus.selection?.[0] != null) target.setSelectionRange(...focus.selection); } catch { /* idem */ }
 }
 
-async function refreshAll({ includeSlow = true } = {}) {
-  const feature = state.feature || undefined;
-  const since = computeSinceIso(state.period, Date.now());
-  const tasks = [
-    ['usage', fetchUsage({ feature, since })],
-    ['status', fetchStatus({ feature })],
-  ];
+async function refreshAll({ includeSlow = true, includeUsage = true } = {}) {
+  const filters = { feature: state.feature, project: state.project };
+  const tasks = [['status', fetchStatus(filters)]];
+  if (includeUsage) {
+    const since = computeSinceIso(state.period, Date.now());
+    tasks.push(['usage', fetchUsage({ ...filters, since })]);
+  }
   if (includeSlow) {
+    tasks.push(['projects', fetchProjects()]);
     tasks.push(['features', fetchFeatures()]);
     tasks.push(['delegation', fetchDelegation()]);
     tasks.push(['quota', fetchQuota()]);
@@ -256,19 +291,28 @@ async function refreshAll({ includeSlow = true } = {}) {
     });
   };
 
-  await Promise.allSettled(tasks.map(([key, promise]) =>
-    promise.then((value) => {
-      state[key] = value;
+  await Promise.allSettled(tasks.map(([key, promise]) => {
+    latestRequests.set(key, promise);
+    return promise.then((value) => {
+      if (latestRequests.get(key) !== promise) return;
       delete state.apiErrors[key];
+      if (key === 'features') {
+        featureCards = value;
+        applyProjectFilter();
+      } else {
+        state[key] = value;
+      }
+      if (key === 'projects') updateProjectOptions();
       if (key === 'delegation' && !state.delegationDirty) {
         state.delegationDraft = JSON.parse(JSON.stringify(value.delegation));
       }
       scheduleRender();
     }).catch((reason) => {
+      if (latestRequests.get(key) !== promise) return;
       state.apiErrors[key] = reason?.message ?? `Erreur ${key}`;
       scheduleRender();
-    }),
-  ));
+    });
+  }));
 }
 
 let storyChecksRequest = 0;
@@ -278,7 +322,8 @@ async function refreshStoryChecks() {
   try {
     const checks = await getJson(API.storyChecks);
     if (request !== storyChecksRequest) return;
-    state.storyChecks = checks;
+    storyReports = checks;
+    applyProjectFilter();
     delete state.apiErrors.storyChecks;
     updateFeatureOptions();
   } catch (error) {
@@ -294,24 +339,29 @@ function connectSse() {
     sseSource = null;
   }
   clearTimeout(sseReconnectTimer);
+  clearTimeout(statusDebounceTimer);
   state.sseState = 'connecting';
 
-  const query = buildQuery({ feature: state.feature || undefined });
+  const query = buildQuery({ feature: state.feature, project: state.project });
+  let source;
   try {
-    sseSource = new EventSource(`${API.stream}${query}`);
+    source = new EventSource(`${API.stream}${query}`);
+    sseSource = source;
   } catch {
     state.sseState = 'closed';
     render();
     return;
   }
 
-  sseSource.addEventListener('open', () => {
+  source.addEventListener('open', () => {
+    if (sseSource !== source) return;
     state.sseState = 'open';
     if (state.view === 'relais') void refreshStoryChecks();
     if (state.view === 'orbite') render();
   });
 
-  sseSource.addEventListener('agent', (event) => {
+  source.addEventListener('agent', (event) => {
+    if (sseSource !== source) return;
     let payload;
     try { payload = JSON.parse(event.data); } catch { return; }
     if (payload.kind === 'story_end' && state.view === 'relais') void refreshStoryChecks();
@@ -326,23 +376,15 @@ function connectSse() {
 
     // Rafraîchit /api/status (anti-rebond court) pour tenir l'Orrery et la frise à jour.
     clearTimeout(statusDebounceTimer);
-    statusDebounceTimer = setTimeout(async () => {
-      try {
-        state.status = await fetchStatus({ feature: state.feature || undefined });
-        if (payload.kind === 'call_end') {
-          state.usage = await fetchUsage({
-            feature: state.feature || undefined,
-            since: computeSinceIso(state.period, Date.now()),
-          });
-        }
-        render();
-      } catch { /* géré au prochain cycle */ }
+    statusDebounceTimer = setTimeout(() => {
+      void refreshAll({ includeSlow: false, includeUsage: payload.kind === 'call_end' });
     }, 350);
   });
 
-  sseSource.addEventListener('error', () => {
+  source.addEventListener('error', () => {
+    if (sseSource !== source) return;
     state.sseState = 'closed';
-    sseSource?.close();
+    source.close();
     sseSource = null;
     if (state.view === 'orbite') render();
     sseReconnectTimer = setTimeout(connectSse, SSE_RECONNECT_MS);
@@ -363,12 +405,15 @@ async function loadCallWithRetry(callId) {
 
 function scheduleInspectorRefresh(callId) {
   clearTimeout(inspectorRefreshTimer);
-  const ended = state.inspector.data?.events?.some((e) => e.kind === 'call_end');
-  if (!state.inspector.open || state.inspector.callId !== callId || ended) return;
+  const inspector = state.inspector;
+  const ended = inspector.data?.events?.some((e) => e.kind === 'call_end');
+  if (!inspector.open || inspector.callId !== callId || ended) return;
   inspectorRefreshTimer = setTimeout(async () => {
-    if (!state.inspector.open || state.inspector.callId !== callId) return;
+    if (!inspector.open || state.inspector !== inspector) return;
     try {
-      state.inspector.data = await fetchCall(callId);
+      const data = await fetchCall(callId);
+      if (!inspector.open || state.inspector !== inspector) return;
+      inspector.data = data;
       renderInspector(dom.drawerRoot, state, actions);
       scheduleInspectorRefresh(callId);
     } catch { /* ignore */ }
@@ -432,7 +477,7 @@ const actions = {
   async openCall(callId) {
     if (!callId) return;
     clearTimeout(inspectorRefreshTimer);
-    state.inspector = {
+    const inspector = state.inspector = {
       open: true,
       callId,
       loading: true,
@@ -445,14 +490,14 @@ const actions = {
     renderInspector(dom.drawerRoot, state, actions);
     try {
       const data = await loadCallWithRetry(callId);
-      if (state.inspector.callId !== callId) return;
+      if (!inspector.open || state.inspector !== inspector) return;
       state.inspector.loading = false;
       state.inspector.data = data;
       renderInspector(dom.drawerRoot, state, actions);
       dom.drawerRoot.querySelector('.drawer__close')?.focus();
       scheduleInspectorRefresh(callId);
     } catch (error) {
-      if (state.inspector.callId !== callId) return;
+      if (!inspector.open || state.inspector !== inspector) return;
       state.inspector.loading = false;
       state.inspector.error = error.message ?? 'Impossible de charger cet appel.';
       renderInspector(dom.drawerRoot, state, actions);
@@ -472,7 +517,8 @@ const actions = {
   },
 
   async submitResume() {
-    const { callId, resumeText, resuming } = state.inspector;
+    const inspector = state.inspector;
+    const { callId, resumeText, resuming } = inspector;
     if (!callId || !resumeText.trim() || resuming) return;
     state.inspector.resuming = true;
     state.inspector.resumeError = null;
@@ -480,9 +526,10 @@ const actions = {
     try {
       const res = await resumeCall(callId, resumeText.trim());
       notify('Session reprise — ouverture du nouvel appel.', 'ok');
-      await actions.openCall(res.callId);
+      if (inspector.open && state.inspector === inspector) await actions.openCall(res.callId);
       void refreshAll({ includeSlow: false });
     } catch (error) {
+      if (!inspector.open || state.inspector !== inspector) return;
       state.inspector.resuming = false;
       state.inspector.resumeError = error.message ?? 'Échec de la reprise.';
       renderInspector(dom.drawerRoot, state, actions);
@@ -737,6 +784,8 @@ function bindControls() {
     ...PERIODS.map((p) => el('option', { value: p.value, selected: p.value === state.period }, p.label)),
   );
 
+  dom.projectSelect.addEventListener('change', (e) => setProject(e.target.value));
+
   dom.featureSelect.addEventListener('change', (e) => {
     state.feature = e.target.value;
     connectSse();
@@ -791,6 +840,7 @@ function startLiveTick() {
 }
 
 initTheme();
+try { state.project = localStorage.getItem(PROJECT_KEY) ?? ''; } catch { /* ignore */ }
 bindControls();
 render();
 void refreshAll({ includeSlow: true });

@@ -318,6 +318,7 @@ function renderTelemetryTape(state, actions) {
       agent: ev.agent,
       callId: ev.callId,
       feature: ev.feature,
+      branch: ev.branch,
       kind: ev.kind,
       tool: ev.tool,
       text: ev.text,
@@ -340,6 +341,7 @@ function renderTelemetryTape(state, actions) {
         agent: c.agent,
         callId: c.callId,
         feature: c.feature,
+        branch: c.branch,
         kind: c.status === 'running' ? 'running' : 'call_end',
         tool,
         status: c.status,
@@ -374,6 +376,8 @@ function renderTelemetryTape(state, actions) {
             : item.kind === 'message' ? 'Message'
               : item.kind === 'running' ? 'En vol'
                 : (CALL_STATUS_LABELS[item.status] ?? item.kind);
+          const branch = item.feature ? null : item.branch;
+          const detail = item.feature || (branch ? '' : NO_FEATURE_LABEL);
           const summary = item.tool?.target
             ? `${item.tool.name ?? 'outil'} · ${truncate(item.tool.target, 84)}`
             : item.text
@@ -381,8 +385,8 @@ function renderTelemetryTape(state, actions) {
               : item.error
                 ? truncate(item.error, 96)
                 : item.toolCount != null
-                  ? `${item.toolCount} outils · ${item.feature ?? NO_FEATURE_LABEL}`
-                  : (item.feature ?? NO_FEATURE_LABEL);
+                  ? `${item.toolCount} outils${detail ? ` · ${detail}` : ''}`
+                  : detail;
 
           return el('li', { class: `tape-row${item.isLiveSse ? ' tape-row--sse' : ''}` },
             el('button', {
@@ -397,7 +401,8 @@ function renderTelemetryTape(state, actions) {
               ),
               el('span', { class: `status-pill status-pill--${item.ok === false || item.status === 'error' ? 'error' : item.status === 'running' ? 'running' : 'ok'}` },
                 badgeText),
-              el('span', { class: 'tape-row__summary mono' }, summary),
+              el('span', { class: 'tape-row__summary mono' }, summary,
+                branch ? el('small', { class: 'muted' }, `${summary ? ' · ' : ''}${branch}`) : null),
             ),
             item.output ? el('details', { class: 'tape-output' },
               el('summary', null, 'Voir la sortie réelle'),
@@ -529,7 +534,7 @@ function renderRunningCallCard(call, nowMs, actions) {
       el('span', { class: 'mono running-card__elapsed', dataset: { liveSince: call.startedAt } }, formatDuration(elapsed)),
     ),
     el('div', { class: 'running-card__body mono' },
-      tool ? `${tool.name} · ${truncate(tool.target ?? '', 60)}` : (call.feature ?? NO_FEATURE_LABEL)),
+      tool ? `${tool.name} · ${truncate(tool.target ?? '', 60)}` : (call.feature || call.branch || NO_FEATURE_LABEL)),
   );
 }
 
@@ -544,7 +549,8 @@ function renderRecentCallRow(call, actions) {
       el('span', { class: `status-dot status-dot--${call.status ?? 'ok'}`, 'aria-hidden': 'true' }),
       el('span', { class: 'compact-call-main' },
         el('strong', null, agentLabel(call.agent)),
-        el('span', { class: 'muted' }, ` · ${call.feature ?? NO_FEATURE_LABEL}`),
+        el(call.feature || !call.branch ? 'span' : 'small', { class: 'muted' },
+          ` · ${call.feature || call.branch || NO_FEATURE_LABEL}`),
       ),
       el('span', { class: 'mono muted compact-call-meta' },
         `${formatTokens(tokens)} · ${formatDuration(call.durationMs)}`),

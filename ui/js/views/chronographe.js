@@ -1,5 +1,5 @@
 // Vue « Chronographe » : frise des appels du jour, spectre 14 jours UTC, répartitions et fiabilité.
-import { NO_FEATURE_LABEL } from '../config.js';
+import { NO_FEATURE_LABEL, SCRATCH_PROJECT_LABEL } from '../config.js';
 import { el, svgEl } from '../dom.js';
 import {
   agentColor, agentGlyph, agentLabel, cacheRatio, formatDuration,
@@ -28,12 +28,14 @@ function renderDayChronogram(state, actions) {
   );
   const spanMs = Math.max(60_000, maxMs - minMs);
 
-  // Regroupement par fonctionnalité
+  // Regroupement par fonctionnalité, ou par branche pour les appels sans fonctionnalité.
   const groups = new Map();
   for (const call of calls) {
-    const key = call.feature ?? NO_FEATURE_LABEL;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(call);
+    const feature = call.feature || null;
+    const branch = feature ? null : call.branch || null;
+    const key = JSON.stringify([feature, branch]);
+    if (!groups.has(key)) groups.set(key, { label: feature || branch || NO_FEATURE_LABEL, calls: [] });
+    groups.get(key).calls.push(call);
   }
 
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((p) => ({
@@ -53,10 +55,10 @@ function renderDayChronogram(state, actions) {
       ...ticks.map((t) => el('span', { class: 'chrono-tick mono muted', style: { left: `${t.pct}%` } }, t.label)),
     ),
     el('div', { class: 'chrono-rows' },
-      ...[...groups.entries()].map(([feat, featCalls]) => {
+      ...[...groups.values()].map(({ label, calls: featCalls }) => {
         const sorted = [...featCalls].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
         return el('div', { class: 'chrono-group' },
-          el('div', { class: 'chrono-group__label mono' }, feat),
+          el('div', { class: 'chrono-group__label mono' }, label),
           el('div', { class: 'chrono-lanes' },
             ...sorted.map((call) => {
               const s = Date.parse(call.startedAt);
@@ -74,7 +76,7 @@ function renderDayChronogram(state, actions) {
                     '--agent-color': agentColor(call.agent),
                   },
                   title: `${agentLabel(call.agent)} · ${roleLabel(call.role)} · ${formatDuration(dur)}`,
-                  'aria-label': `${agentLabel(call.agent)} sur ${feat}, ${formatDuration(dur)}, statut ${call.status}`,
+                  'aria-label': `${agentLabel(call.agent)} sur ${label}, ${formatDuration(dur)}, statut ${call.status}`,
                   onClick: () => actions.openCall(call.callId),
                 },
                   el('span', { class: 'chrono-bar__text' }, `${agentLabel(call.agent)} · ${formatDuration(dur)}`),
@@ -190,6 +192,7 @@ function renderBreakdowns(state, actions) {
     { key: 'byModel', label: 'Par modèle' },
     { key: 'byFeature', label: 'Par fonctionnalité' },
     { key: 'byRole', label: 'Par rôle' },
+    { key: 'byProject', label: 'Par projet' },
   ];
   const activeDim = state.usageDim || 'byAgent';
   const rows = state.usage?.[activeDim] ?? [];
@@ -218,7 +221,7 @@ function renderBreakdowns(state, actions) {
           const pct = Math.max(2, (total / maxTokens) * 100);
           const label = activeDim === 'byAgent' ? agentLabel(row.key)
             : activeDim === 'byRole' ? roleLabel(row.key)
-              : (row.key ?? NO_FEATURE_LABEL);
+              : (row.key ?? (activeDim === 'byProject' ? SCRATCH_PROJECT_LABEL : NO_FEATURE_LABEL));
           const color = activeDim === 'byAgent' ? agentColor(row.key) : null;
           return el('div', { class: 'breakdown-row' },
             el('div', { class: 'breakdown-row__head' },

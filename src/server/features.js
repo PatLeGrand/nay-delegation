@@ -32,13 +32,15 @@ export function parseFeature(text, name) {
   };
 }
 
-export async function readFeatures(root, directory) {
+export async function readFeatures(root, directory, project) {
   const dir = await safePath(root, directory);
   let names;
   try { names = await readdir(dir); } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
   }
-  return Promise.all(names.filter((name) => name.endsWith('.md')).sort().map(async (name) =>
-    parseFeature(await readFile(await safePath(root, `${directory}/${name}`), 'utf8'), basename(name, '.md'))));
+  return Promise.all(names.filter((name) => name.endsWith('.md')).sort().map(async (name) => {
+    const markdown = await readFile(await safePath(root, `${directory}/${name}`), 'utf8');
+    return { ...parseFeature(markdown, basename(name, '.md')), project };
+  }));
 }

@@ -29,7 +29,7 @@ export async function readCall(root, directory, callId) {
 export function readStoryChecks(root, directory) {
   return collectEvents(root, directory, (result, event) => {
     if (event.kind !== 'story_end' || (!event.checks && event.status !== 'CONTRÔLES')) return;
-    const { ts, storyId, feature, status, checks, checksBy } = event;
-    result.push({ ts, storyId, feature, status, checks, checksBy });
+    const { ts, storyId, feature, project, branch, status, checks, checksBy } = event;
+    result.push({ ts, storyId, feature, project, branch, status, checks, checksBy });
   });
 }

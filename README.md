@@ -454,6 +454,12 @@ node bin/nay.js ui
 `config/ui.json` définit les paramètres HTTP, les dossiers de la page et des fiches,
 la limite des requêtes et les intervalles SSE. Le serveur suit [le contrat API](docs/api.md).
 
+Le sélecteur de projet en haut de page filtre les appels, la consommation, la télémétrie en
+direct et les stories. Les projets sont proposés par activité la plus récente, avec « Essais hors
+Git » quand le journal contient des appels sans projet. Le choix est mémorisé dans le navigateur.
+Changer de projet réinitialise le filtre de fonctionnalité. La branche s'affiche pour les appels
+sans fonctionnalité quand elle est connue.
+
 ### Concept : Observatoire Orbital
 
 L’interface représente la flotte Nay comme un **Planétarium de vol** : l’orchestrateur occupe le
@@ -472,7 +478,7 @@ clair/sombre, `Échap` pour fermer la boîte noire) :
   résumé et son origine (« vérifiés par Nay » ou « déclarés, non vérifiés »). Une story arrêtée
   au statut `CONTRÔLES` porte la mention « Contrôles en échec ».
 - **Chronographe** (`3`) : frise UTC du jour cliquable, spectre empilé sur 14 jours (entrée neuve,
-  cache relu, sortie), répartitions et autopsie de fiabilité.
+  cache relu, sortie), répartitions dont « Par projet », et autopsie de fiabilité.
 - **Aiguillage** (`4`) : cascades de priorité par rôle réordonnables par glisser-déposer ou au
   clavier (`↑`/`↓`), avec disponibilité temps réel et simulateur d’aiguillage.
 - **Laboratoire** (`5`) : fonctionnalités prospectives clairement badgées **Maquette** (budget et

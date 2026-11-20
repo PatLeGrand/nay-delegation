@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { findResumableCall, resumeCall } from '../resume.js';
 import { createServer as httpServer } from 'node:http';
 import { loadModelsConfig, readConfig, repositoryRoot } from '../config.js';
+import { detectProject } from '../project.js';
 import { readUsage } from '../usageLog.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from '../quota/index.js';
 import { loadMonitorConfig } from '../monitor/config.js';
@@ -69,7 +70,10 @@ async function readApi(pathname, params, context) {
     return call;
   }
   if (pathname === '/api/story-checks') return readStoryChecks(dataRoot, monitorConfig.eventsDir);
-  if (pathname === '/api/features') return readFeatures(root, config.featuresDir);
+  if (pathname === '/api/features') {
+    const { project: nayProject } = await context.nayProject;
+    return readFeatures(root, config.featuresDir, nayProject);
+  }
   if (pathname === '/api/delegation') return readDelegation(root, userDir);
   if (pathname === '/api/agents') return listAgents(root, userDir);
   if (pathname === '/api/models') return readModels(root, catalog, userDir);
@@ -154,7 +158,7 @@ async function route(request, response, context) {
     streams.add(response);
     response.on('close', () => streams.delete(response));
     const feature = params.has('feature') ? params.get('feature') : undefined;
-    return startStream(request, response, { fileForToday: todayFile, config, feature });
+    return startStream(request, response, { fileForToday: todayFile, config, feature, project: params.get('project') });
   }
   if (pathname.startsWith('/api/')) return json(response, 200, await readApi(pathname, params, context));
   return serveStatic(root, config.uiDir, pathname, response);
@@ -172,7 +176,8 @@ export function createServer({ root = repositoryRoot(), config = readConfig('ui'
   const readAgentsConfig = agentsConfig ? async () => agentsConfig
     : async () => ({ ...quotaAgentConfig(), agents: (await readLayered(root, userDir, 'agents')).merged });
   const context = { root, userDir, dataRoot, config, now, quotasReader, agentsConfig: readAgentsConfig, monitorConfig,
-    usagePath, todayFile, streams, resumer, resuming: new Set(), catalog, modelsConfig, writes: Promise.resolve() };
+    usagePath, todayFile, streams, resumer, resuming: new Set(), catalog, modelsConfig,
+    nayProject: detectProject(root), writes: Promise.resolve() };
   const server = httpServer(async (request, response) => {
     try {
       const port = server.address()?.port;

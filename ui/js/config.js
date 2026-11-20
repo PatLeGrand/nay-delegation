@@ -16,12 +16,15 @@ export const CRITICAL_QUOTA_PCT = 10;
 
 export const SVG_NS = 'http://www.w3.org/2000/svg';
 export const THEME_KEY = 'nay-observatory-theme';
+export const PROJECT_KEY = 'nay-observatory-project';
 export const THEMES = ['dark', 'light'];
+export const SCRATCH_PROJECT_LABEL = 'Essais hors Git';
 
 export const API = {
   usage: '/api/usage',
   quota: '/api/quota',
   status: '/api/status',
+  projects: '/api/projects',
   features: '/api/features',
   storyChecks: '/api/story-checks',
   delegation: '/api/delegation',

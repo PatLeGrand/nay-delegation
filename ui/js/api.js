@@ -48,9 +48,10 @@ export const sendJson = (method, path, payload) => request(path, {
 
 export const putJson = (path, payload) => sendJson('PUT', path, payload);
 
-export const fetchUsage = ({ feature, since } = {}) => getJson(`${API.usage}${buildQuery({ feature, since })}`);
+export const fetchUsage = ({ feature, project, since } = {}) => getJson(`${API.usage}${buildQuery({ feature, project, since })}`);
 export const fetchQuota = () => getJson(API.quota);
-export const fetchStatus = ({ feature } = {}) => getJson(`${API.status}${buildQuery({ feature })}`);
+export const fetchStatus = ({ feature, project } = {}) => getJson(`${API.status}${buildQuery({ feature, project })}`);
+export const fetchProjects = () => getJson(API.projects);
 export const fetchFeatures = () => getJson(API.features);
 export const fetchDelegation = () => getJson(API.delegation);
 export const saveDelegation = (payload) => putJson(API.delegation, payload);

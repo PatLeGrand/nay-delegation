@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import http from 'node:http';
 import { once } from 'node:events';
+import childProcess from 'node:child_process';
 import { PassThrough, Readable } from 'node:stream';
 import { createServer } from '../src/server/app.js';
 import { aggregateUsage } from '../src/server/usage.js';
@@ -154,7 +155,7 @@ async function httpChecks(t, memory) {
   assert.equal((await f.request('/api/usage?since=invalide')).status, 400);
   assert.deepEqual(JSON.parse((await f.request('/api/features')).text), []);
   const checks = { ts: '2026-11-16T12:00:00Z', storyId: 's1', feature: 'serveur',
-    status: 'CONTRÔLES', checks: 'lint ÉCHEC', checksBy: 'nay' };
+    project: 'nay', branch: 'feature/serveur', status: 'CONTRÔLES', checks: 'lint ÉCHEC', checksBy: 'nay' };
   await writeFile(join(dirname(f.file), '2026-11-16.1.jsonl'),
     JSON.stringify({ kind: 'story_end', ...checks, detail: 'rapport complet' }));
   assert.deepEqual(JSON.parse((await f.request('/api/story-checks')).text), [checks]);
@@ -260,6 +261,53 @@ async function streamClient(t, f, query = '') {
   }
   return { until, text: () => text };
 }
+
+test('fiches API : projet détecté à la racine du serveur et partagé par les fiches', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'nay-features-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = t.mock.method(childProcess, 'execFile', (binary, args, { cwd }, callback) => {
+    assert.equal(binary, 'git');
+    assert.equal(cwd, root);
+    switch (args[0]) {
+      case 'rev-parse': return callback(null, `${root}/.git\n`);
+      case 'branch': return callback(null, 'main\n');
+      default: assert.fail(`Commande Git inattendue : ${args.join(' ')}`);
+    }
+  });
+  await mkdir(join(root, '.nay'));
+  await mkdir(join(root, 'docs/features'), { recursive: true });
+  await writeFile(join(root, '.nay/project.json'), '{"name":"Mon Nay"}');
+  await writeFile(join(root, 'docs/features/a.md'), '# Fonctionnalité : a');
+  const f = await fixture(t, true, { root });
+  const getFeatures = async () => JSON.parse((await f.request('/api/features')).text)
+    .map(({ name, project }) => [name, project]);
+  assert.deepEqual(await getFeatures(), [['a', 'Mon Nay']]);
+  await writeFile(join(root, '.nay/project.json'), '{"name":"Autre nom"}');
+  await writeFile(join(root, 'docs/features/b.md'), '# Fonctionnalité : b');
+  assert.deepEqual(await getFeatures(), [['a', 'Mon Nay'], ['b', 'Mon Nay']]);
+  assert.equal(git.mock.callCount(), 2);
+});
+
+test('SSE : cumule projet et fonctionnalité, y compris les événements historiques sans projet', async (t) => {
+  const f = await fixture(t, true);
+  const named = await streamClient(t, f, '?project=Mon+Nay&feature=serveur');
+  const scratch = await streamClient(t, f, '?project=-&feature=serveur');
+  const all = await streamClient(t, f);
+  const events = [
+    event('bon-projet-autre-feature', { project: 'Mon Nay', feature: 'autre' }),
+    event('autre-projet', { project: 'autre' }),
+    event('sans-projet-autre-feature', { project: null, feature: 'autre' }),
+    event('historique'),
+    event('sans-projet', { project: null }),
+    event('bon-projet', { project: 'Mon Nay' }),
+  ];
+  await appendFile(f.file, events.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
+  await Promise.all([named.until('"bon-projet"'), scratch.until('"sans-projet"'), all.until('"bon-projet"')]);
+  const callIds = (client) => [...client.text().matchAll(/"callId":"([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(callIds(named), ['bon-projet']);
+  assert.deepEqual(callIds(scratch), ['historique', 'sans-projet']);
+  assert.deepEqual(callIds(all), events.map((entry) => entry.callId));
+});
 
 async function streamChecks(t, memory) {
   const f = await fixture(t, memory);

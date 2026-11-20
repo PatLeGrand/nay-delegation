@@ -10,6 +10,7 @@ function renderStoryChecks(report) {
   const failed = report.status === 'CONTRÔLES';
   return el('div', { class: failed ? 'callout callout--danger' : 'small' },
     el('span', { class: 'small mono muted' }, `Story ${report.storyId}`),
+    !report.feature && report.branch ? el('small', { class: 'mono muted' }, ` · ${report.branch}`) : null,
     failed ? el('strong', null, 'Contrôles en échec') : null,
     report.checks ? el('p', null, `Contrôles : ${report.checks} `,
       report.checksBy === 'nay' ? el('span', { class: 'badge badge-info' }, 'vérifiés par Nay') : null,
@@ -84,6 +85,7 @@ function renderRelayCard(story, state, actions) {
               el('strong', null, agentLabel(call.agent)),
               el('span', { class: 'relay-capsule__sub mono' },
                 `${roleLabel(call.role)}${call.durationMs ? ` · ${formatDuration(call.durationMs)}` : ''}`),
+              call.branch ? el('small', { class: 'relay-capsule__sub mono' }, call.branch) : null,
             ),
             el('span', { class: `status-dot status-dot--${call.status ?? 'ok'}`, 'aria-hidden': 'true' }),
           ));

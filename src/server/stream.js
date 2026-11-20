@@ -1,16 +1,18 @@
 import { open, stat } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
+import { matchesProject } from '../project.js';
 
-function emitLine(line, response, feature) {
+function emitLine(line, response, feature, project) {
   let event;
   try { event = JSON.parse(line); } catch { return; }
   if (!event || typeof event !== 'object' || Array.isArray(event)) return;
   if (feature !== undefined && event.feature !== feature) return;
+  if (!matchesProject(event.project, project)) return;
   // Un client qui ne consomme plus le flux se reconnectera sans saturer la mémoire du serveur.
   if (!response.write(`event: agent\ndata: ${JSON.stringify(event)}\n\n`)) response.destroy();
 }
 
-export async function startStream(request, response, { fileForToday, config, feature }) {
+export async function startStream(request, response, { fileForToday, config, feature, project }) {
   let handle, identity, position = 0, pending = '', decoder = new StringDecoder('utf8');
   let stopped = false, polling = false;
   const reset = () => { position = 0; pending = ''; decoder = new StringDecoder('utf8'); };
@@ -26,7 +28,7 @@ export async function startStream(request, response, { fileForToday, config, fea
       pending += decoder.write(buffer.subarray(0, bytesRead));
       const lines = pending.split('\n');
       pending = lines.pop();
-      for (const line of lines) emitLine(line, response, feature);
+      for (const line of lines) emitLine(line, response, feature, project);
     }
   }
   async function poll(initial = false) {
