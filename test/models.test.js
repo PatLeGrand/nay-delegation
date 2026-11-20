@@ -110,7 +110,7 @@ test('API /api/models et /api/agents : ajout, modification, suppression et prote
     relecteur: { parDefaut: ['sol'], selonAuteur: {} } }));
   let refreshes = 0;
   const fake = { get: async () => catalog, refresh: async () => { refreshes++; return catalog; }, refreshing: () => false };
-  const server = createServer({ root, catalog: fake, config: { ...readConfig('ui'), port: 0 },
+  const server = createServer({ root, userDir: join(root, 'perso'), catalog: fake, config: { ...readConfig('ui'), port: 0 },
     quotasReader: async () => ({}) });
   try {
     server.listen(0, '127.0.0.1');
@@ -139,7 +139,10 @@ test('API /api/models et /api/agents : ajout, modification, suppression et prote
   const created = await call('/api/agents', 'POST', opus);
   assert.equal(created.status, 201);
   assert.deepEqual(created.body.agents.opus, { cli: 'claude', model: 'claude-opus-5-5', effort: 'high', timeoutMin: 60 });
-  assert.match(await readFile(join(root, 'config/agents.json'), 'utf8'), /\n {2}"opus": \{ "cli": "claude"/);
+  // L'agent ajouté va dans la config perso du dev, pas dans le dépôt.
+  assert.doesNotMatch(await readFile(join(root, 'config/agents.json'), 'utf8'), /opus/);
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'perso/agents.json'), 'utf8')).opus, created.body.agents.opus);
+  assert.equal(created.body.sources.opus, 'perso');
   assert.equal((await call('/api/agents', 'POST', opus)).status, 400);
   assert.ok((await call('/api/agents', 'POST', { ...opus, name: 'x', model: 'gpt-9', cli: 'codex' })).body.errors.length);
   assert.ok((await call('/api/quota')).body.agents.some((agent) => agent.name === 'opus'));
@@ -151,9 +154,17 @@ test('API /api/models et /api/agents : ajout, modification, suppression et prote
   assert.equal((await call('/api/agents/sol', 'PUT', { name: 'soleil', cli: 'codex', model: 'gpt-6.1-sol', effort: 'low', timeoutMin: 45 })).status, 400);
   assert.equal((await call('/api/agents/inconnu', 'PUT', opus)).status, 404);
 
-  const refused = await call('/api/agents/sol', 'DELETE');
+  assert.equal(updated.body.sources.sol, 'modifie');
+  // Un agent du dépôt ne se supprime pas ; supprimer sa version perso le remet d'origine.
+  const reverted = await call('/api/agents/sol', 'DELETE');
+  assert.equal(reverted.status, 200);
+  assert.equal(reverted.body.agents.sol.timeoutMin, 40);
+  assert.equal((await call('/api/agents/sol', 'DELETE')).status, 409);
+  await call('/api/delegation', 'PUT', { developpeur: ['sol', 'opus'], relecteur: { parDefaut: ['sol'], selonAuteur: {} } });
+  const refused = await call('/api/agents/opus', 'DELETE');
   assert.equal(refused.status, 409);
-  assert.deepEqual(refused.body.errors, ['developpeur', 'relecteur.parDefaut']);
+  assert.deepEqual(refused.body.errors, ['developpeur']);
+  await call('/api/delegation', 'PUT', { developpeur: ['sol'], relecteur: { parDefaut: ['sol'], selonAuteur: {} } });
   const removed = await call('/api/agents/opus', 'DELETE');
   assert.equal(removed.status, 200);
   assert.ok(!('opus' in removed.body.agents));

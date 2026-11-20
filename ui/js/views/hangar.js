@@ -1,4 +1,4 @@
-// Vue « Hangar » : flotte d'agents (config/agents.json) et modèles proposés par chaque CLI.
+// Vue « Hangar » : flotte d'agents (dépôt + config perso du dev) et modèles proposés par chaque CLI.
 import { AGENT_DEFAULT_TIMEOUT_MIN, AGENT_MAX_TIMEOUT_MIN, PROVIDER_LABELS, ROLE_LABELS } from '../config.js';
 import { el } from '../dom.js';
 import { agentColor, agentGlyph, agentLabel } from '../format.js';
@@ -75,13 +75,26 @@ function renderFleet(state, actions) {
                 onClick: () => actions.saveAgent(name) }, 'Enregistrer') : null,
               changed ? el('button', { type: 'button', class: 'btn btn-ghost btn-xs', disabled: busy,
                 onClick: () => actions.cancelAgentEdit(name) }, 'Annuler') : null,
-              el('button', { type: 'button', class: 'icon-btn icon-btn--danger', disabled: busy || used.length > 0,
-                title: used.length ? `Retirez d’abord ${name} de l’aiguillage` : `Retirer ${name} de la flotte`,
-                'aria-label': `Retirer ${name} de la flotte`, onClick: () => actions.removeAgent(name) }, '×')),
+              agentSourceAction(name, state.agents?.sources?.[name], used, busy, actions)),
           );
         })),
       )),
   );
+}
+
+// Agents du dépôt : non supprimables ici. Version perso d'un agent du dépôt : on peut y renoncer.
+function agentSourceAction(name, source, used, busy, actions) {
+  if (source === 'depot' || source === undefined) {
+    return el('span', { class: 'badge hangar-badge', title: 'Agent commun, défini dans le dépôt' }, 'dépôt');
+  }
+  if (source === 'modifie') {
+    return el('button', { type: 'button', class: 'icon-btn', disabled: busy,
+      title: `Revenir à la version du dépôt de ${name}`, 'aria-label': `Revenir à la version du dépôt de ${name}`,
+      onClick: () => actions.removeAgent(name, { revert: true }) }, '↺');
+  }
+  return el('button', { type: 'button', class: 'icon-btn icon-btn--danger', disabled: busy || used.length > 0,
+    title: used.length ? `Retirez d’abord ${name} de l’aiguillage` : `Retirer ${name} de ta flotte`,
+    'aria-label': `Retirer ${name} de ta flotte`, onClick: () => actions.removeAgent(name) }, '×');
 }
 
 function renderAddForm(cli, entry, state, actions) {

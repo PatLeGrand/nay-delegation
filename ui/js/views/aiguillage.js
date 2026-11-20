@@ -1,5 +1,5 @@
-// Vue « Aiguillage » : éditeur visuel de config/delegation.json (glisser-déposer + clavier)
-// et simulateur d'aiguillage en direct.
+// Vue « Aiguillage » : éditeur visuel de la délégation (glisser-déposer + clavier), enregistrée
+// dans la config perso du dev ; rôles perso avec leur règle d'usage ; simulateur d'aiguillage.
 import { DELEGATION_SIMPLE_ROLES, ROLE_LABELS } from '../config.js';
 import { el, mockBadge } from '../dom.js';
 import { agentColor, agentGlyph, agentLabel } from '../format.js';
@@ -134,7 +134,7 @@ function renderSimulator(draft, allAgents, state, actions) {
     quotaAgents: state.quota?.agents ?? [],
   });
 
-  const roles = [...DELEGATION_SIMPLE_ROLES, 'relecteur'];
+  const roles = [...DELEGATION_SIMPLE_ROLES, 'relecteur', ...Object.keys(state.delegation?.roles ?? {})];
 
   return el('section', { class: 'panel simulator-panel', 'aria-label': 'Simulateur d’aiguillage' },
     el('header', { class: 'panel__head' },
@@ -151,7 +151,8 @@ function renderSimulator(draft, allAgents, state, actions) {
           class: 'select',
           value: sim.role,
           onChange: (e) => actions.updateSim({ role: e.target.value }),
-        }, ...roles.map((r) => el('option', { value: r, selected: sim.role === r }, ROLE_LABELS[r] ?? r))),
+        }, ...roles.map((r) => el('option', { value: r, selected: sim.role === r },
+          ROLE_LABELS[r] ?? state.delegation?.roles?.[r]?.label ?? r))),
       ),
       sim.role === 'relecteur'
         ? el('label', { class: 'field' },
@@ -205,6 +206,90 @@ function renderSimulator(draft, allAgents, state, actions) {
   );
 }
 
+function personalNote(delegation) {
+  if (!delegation?.configDir) return 'Config perso indisponible : les réglages ne peuvent pas être enregistrés.';
+  const roles = delegation.personal ?? [];
+  return `Tes réglages vont dans ${delegation.configDir}, jamais dans le dépôt. `
+    + (roles.length ? `Rôles réglés par toi : ${roles.join(', ')}.` : 'Tu suis l’ordre du dépôt.');
+}
+
+function usageSelect({ value, usages, label, onChange, focusKey }) {
+  return el('select', { class: 'select select-xs', 'aria-label': label, 'data-focus-key': focusKey, onChange },
+    el('option', { value: '', selected: !value }, 'À demander par l’orchestrateur'),
+    ...Object.entries(usages ?? {}).map(([key, text]) => el('option', { value: key, selected: value === key }, text)));
+}
+
+// Rôles perso : une carte d'ordre de modèles par rôle, sa règle d'usage, et le formulaire d'ajout.
+function renderRoles(source, allAgents, quotaMap, state, actions, updateDraft) {
+  const roles = state.delegation?.roles ?? {};
+  const usages = state.delegation?.usages ?? {};
+  return el('section', { class: 'relais-section' },
+    el('div', { class: 'section-head-row' },
+      el('h3', { class: 'section-kicker' }, 'Rôles perso'),
+      state.roleForm ? null : el('button', { type: 'button', class: 'btn btn-ghost btn-xs',
+        onClick: () => actions.openRoleForm() }, '+ Nouveau rôle'),
+    ),
+    el('p', { class: 'muted small' },
+      'Ex. agent UI, agent adversaire, sécurité. Sans règle, l’orchestrateur te demandera quand les utiliser (nay guide).'),
+    state.roleForm ? renderRoleForm(state, actions, allAgents, usages) : null,
+    Object.keys(roles).length
+      ? el('div', { class: 'cascade-grid' },
+        ...Object.entries(roles).map(([id, role]) => el('div', { class: 'role-card' },
+          renderCascadeList({
+            title: role.label,
+            subtitle: `${id} · ${role.mode === 'read' ? 'lecture seule' : 'écriture'} — ${role.description}`,
+            list: source[id] ?? [],
+            allAgents,
+            quotaMap,
+            onChange: (next) => updateDraft((d) => { d[id] = next; }),
+            onRemoveGroup: () => actions.removeRole(id),
+          }),
+          el('label', { class: 'field role-usage' },
+            el('span', { class: 'field__label' }, 'Quand l’utiliser'),
+            usageSelect({ value: role.usage, usages, label: `Règle d’usage de ${role.label}`, focusKey: `usage:${id}`,
+              onChange: (e) => actions.setRoleUsage(id, e.target.value) })),
+        )))
+      : state.roleForm ? null : el('p', { class: 'muted small' }, 'Aucun rôle perso pour l’instant.'),
+  );
+}
+
+function renderRoleForm(state, actions, allAgents, usages) {
+  const form = state.roleForm;
+  const input = (key, label, attrs = {}) => el('label', { class: 'field' },
+    el('span', { class: 'field__label' }, label),
+    el(attrs.multiline ? 'textarea' : 'input', { class: attrs.multiline ? 'textarea' : 'input', value: form[key], 'data-focus-key': `role:${key}`,
+      placeholder: attrs.placeholder ?? '', rows: attrs.multiline ? 3 : undefined,
+      onInput: (e) => actions.editRoleForm({ [key]: e.target.value }, { silent: true }) }));
+  return el('form', { class: 'panel role-form', onSubmit: (e) => { e.preventDefault(); actions.submitRole(); } },
+    el('div', { class: 'role-form__grid' },
+      input('id', 'Identifiant', { placeholder: 'adversaire' }),
+      input('label', 'Nom affiché', { placeholder: 'Agent adversaire' }),
+      input('description', 'Ce qu’il fait (lu par l’orchestrateur)', { placeholder: 'cherche les cas qui cassent le code' }),
+      el('label', { class: 'field' }, el('span', { class: 'field__label' }, 'Accès'),
+        el('select', { class: 'select', onChange: (e) => actions.editRoleForm({ mode: e.target.value }) },
+          el('option', { value: 'read', selected: form.mode === 'read' }, 'Lecture seule'),
+          el('option', { value: 'write', selected: form.mode === 'write' }, 'Écriture'))),
+      el('label', { class: 'field' }, el('span', { class: 'field__label' }, 'Premier modèle'),
+        el('select', { class: 'select', onChange: (e) => actions.editRoleForm({ agents: [e.target.value] }) },
+          ...allAgents.map((a) => el('option', { value: a, selected: form.agents[0] === a }, agentLabel(a))))),
+      el('label', { class: 'field' }, el('span', { class: 'field__label' }, 'Quand l’utiliser'),
+        usageSelect({ value: form.usage, usages, label: 'Règle d’usage du nouveau rôle', focusKey: 'role:usage',
+          onChange: (e) => actions.editRoleForm({ usage: e.target.value }) })),
+    ),
+    input('instructions', 'Consignes données à l’agent (facultatif)', { multiline: true,
+      placeholder: 'Écris des tests qui font échouer le code ; ne corrige rien.' }),
+    state.roleErrors.length
+      ? el('div', { class: 'callout callout--danger small', role: 'alert' },
+        el('ul', null, ...state.roleErrors.map((err) => el('li', null, err))))
+      : null,
+    el('div', { class: 'role-form__actions' },
+      el('button', { type: 'button', class: 'btn btn-ghost', onClick: () => actions.closeRoleForm() }, 'Annuler'),
+      el('button', { type: 'submit', class: 'btn btn-primary', disabled: state.roleBusy },
+        state.roleBusy ? 'Ajout…' : 'Ajouter le rôle')),
+    el('p', { class: 'muted small' }, 'Les modèles de secours s’ajoutent ensuite sur la carte du rôle.'),
+  );
+}
+
 export function renderAiguillage(state, actions) {
   const source = state.delegationDraft ?? state.delegation?.delegation;
   const allAgents = state.delegation?.agents ?? [];
@@ -229,8 +314,16 @@ export function renderAiguillage(state, actions) {
         el('h2', { class: 'view-banner__title' }, 'Tableau d’aiguillage'),
         el('p', { class: 'muted small' },
           'Réordonnez par glisser-déposer ou au clavier (↑/↓). Les voyants indiquent la disponibilité temps réel selon les quotas.'),
+        el('p', { class: 'muted small' }, personalNote(state.delegation)),
       ),
       el('div', { class: 'view-banner__actions' },
+        state.delegation?.personal?.length && !state.delegationDirty
+          ? el('button', {
+            type: 'button',
+            class: 'btn btn-ghost',
+            onClick: () => actions.resetPersonalDelegation(),
+          }, 'Revenir aux valeurs du dépôt')
+          : null,
         state.delegationDirty
           ? el('button', {
             type: 'button',
@@ -243,7 +336,7 @@ export function renderAiguillage(state, actions) {
           class: 'btn btn-primary',
           disabled: !state.delegationDirty || state.delegationSaving,
           onClick: () => actions.saveDelegation(),
-        }, state.delegationSaving ? 'Enregistrement…' : 'Enregistrer (config/delegation.json)'),
+        }, state.delegationSaving ? 'Enregistrement…' : 'Enregistrer (config perso)'),
       ),
     ),
 
@@ -277,6 +370,8 @@ export function renderAiguillage(state, actions) {
         }),
       }),
     ),
+
+    renderRoles(source, allAgents, quotaMap, state, actions, updateDraft),
 
     el('section', { class: 'relais-section' },
       el('div', { class: 'section-head-row' },

@@ -15,6 +15,9 @@ import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js'
 import { loadEventConfig, readConfig, repositoryRoot } from './config.js';
 import { createJournal } from './eventLog.js';
 import { waitCommand } from './wait.js';
+import { guideCommand, roleCommand, usageCommand } from './roleCommands.js';
+import { loadRoles } from './roles.js';
+import { readLayer, userConfigDir } from './userConfig.js';
 import { startServer } from './server/app.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from './quota/index.js';
 import { remainingPct } from './quota/common.js';
@@ -28,6 +31,9 @@ const USAGE = `Usage :
   nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>]
   nay wait <id>... | --feature <nom> [--feature <nom>...] [--since 10m|<ISO>]
       [--until done,failed,needs_input] [--all] [--timeout <min>]
+  nay role <rôle> <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--diff <révision>] [--commit]
+  nay guide   (consignes de l'orchestrateur : rôles perso, règles, questions à poser)
+  nay usage <rôle> toujours|sur-demande|proposer|demander
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
   nay check-config
   nay quota
@@ -153,7 +159,14 @@ function checkConfigCommand(args, output) {
   if (args.length) throw new Error(USAGE);
   const errors = validateDelegation(readConfig('delegation'), Object.keys(readConfig('agents')));
   if (errors.length) throw new Error(errors.join('\n'));
+  loadRoles();
   output.write('Configuration de délégation valide\n');
+  const dir = userConfigDir();
+  const personal = ['agents', 'delegation', 'roles']
+    .map((name) => [name, Object.keys(readLayer(dir, name))]).filter(([, keys]) => keys.length);
+  output.write(personal.length
+    ? `Config perso (${dir}) : ${personal.map(([name, keys]) => `${name} → ${keys.join(', ')}`).join(' ; ')}\n`
+    : 'Config perso : aucune (valeurs du dépôt)\n');
   return 0;
 }
 
@@ -189,6 +202,12 @@ export async function runCommand(args, { input = process.stdin, output = process
     if (args[0] === 'story') return await storyCommand(args.slice(1), { input, output, execute, quotasReader, storyRunner });
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
+    if (args[0] === 'guide') return guideCommand(args.slice(1), output);
+    if (args[0] === 'usage') return usageCommand(args.slice(1), output);
+    if (args[0] === 'role') {
+      return await roleCommand(args.slice(1), { input, output, errorOutput, execute, committer, readStdin, finish,
+        isAvailable: await quotaAvailability(quotasReader) });
+    }
     if (args[0] === 'models') return await modelsCommand(args.slice(1), output, catalog);
     if (args[0] === 'wait') return await waitCommand(args.slice(1), { output, now, ...waitOptions });
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {

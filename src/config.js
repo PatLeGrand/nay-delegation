@@ -1,8 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LAYERED, mergeLayers, readLayer, userConfigDir } from './userConfig.js';
 
+// Agents, délégation et rôles : valeurs du dépôt, puis config perso du dev par-dessus.
 export function readConfig(name) {
+  const repo = readRepoConfig(name);
+  return LAYERED.includes(name) ? mergeLayers(repo, readLayer(userConfigDir(), name)) : repo;
+}
+
+export function readRepoConfig(name) {
   const file = new URL(`../config/${name}.json`, import.meta.url);
   const text = readFileSync(file, 'utf8');
   try {

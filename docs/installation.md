@@ -116,6 +116,9 @@ Règles minimales à y mettre :
 4. Lancer les stories **en arrière-plan** si le harness le permet : elles durent de quelques
    minutes à plus de dix.
 5. Briefs hors du dépôt (dossier temporaire), jamais committés.
+6. En début de session, lancer `nay guide` et le suivre : rôles perso de l'utilisateur (adversaire,
+   sécurité, UI…), règle de chacun, et questions à lui poser avec les réponses proposées, puis
+   enregistrer son choix avec `nay usage <rôle> <règle>`.
 
 ## 7. Suivre l'activité
 

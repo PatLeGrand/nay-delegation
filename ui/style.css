@@ -1430,3 +1430,10 @@ kbd {
   .tape-row__ts { display: none; }
   .app-footer { padding: 12px; }
 }
+
+/* Rôles perso (Aiguillage) */
+.role-card { display: flex; flex-direction: column; gap: 8px; }
+.role-usage { padding: 0 4px; }
+.role-form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; padding: 16px; }
+.role-form__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.role-form__actions { display: flex; justify-content: flex-end; gap: 8px; }

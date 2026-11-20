@@ -50,6 +50,46 @@ pour permettre à une future interface de valider la configuration avant sauvega
 - Une fiche par fonctionnalité dans `docs/features/`.
 - Jamais de clés d'API ni de configuration de production touchées par les agents.
 
+## Config perso de chaque dev
+
+Le dépôt fournit les valeurs communes : `config/agents.json` (agents connus),
+`config/delegation.json` (ordre conseillé) et `config/roles.json` (rôles partagés, vide par défaut).
+Chaque dev règle les siens **hors du dépôt**, dans `~/.config/nay/` (`$XDG_CONFIG_HOME/nay`, ou
+`NAY_CONFIG_DIR`) : `agents.json`, `delegation.json`, `roles.json`. Ces fichiers ne contiennent que
+ce qui diffère du dépôt ; une clé perso (un agent, un rôle) remplace entièrement celle du dépôt.
+
+- L'interface (`nay ui`) n'écrit que dans cette config perso : rien à committer, et `nay update`
+  n'est plus bloqué par un réglage local. « Revenir aux valeurs du dépôt » efface l'ordre perso.
+- Un agent ajouté depuis le Hangar est perso ; un agent du dépôt ne se supprime pas, sa version
+  modifiée peut être abandonnée (↺).
+- `nay check-config` valide la fusion et indique ce qui vient de la config perso.
+- Sous `node --test`, la config perso est ignorée (sauf `NAY_CONFIG_DIR` explicite).
+
+## Rôles perso (`nay role`, `nay guide`, `nay usage`)
+
+Dans l'Aiguillage, « Nouveau rôle » ajoute un rôle à soi : agent UI, agent adversaire, sécurité…
+Un rôle a un identifiant, un nom, une description (lue par l'orchestrateur), des consignes
+facultatives pour l'agent, un accès (lecture seule ou écriture), un ordre de modèles et une règle :
+
+| Règle | L'orchestrateur… |
+|---|---|
+| `toujours` | le lance à chaque travail concerné, sans demander |
+| `sur-demande` | le lance seulement quand l'utilisateur le demande |
+| `proposer` | le propose en une ligne après le travail concerné |
+| aucune | pose la question avec ces trois réponses, puis enregistre le choix |
+
+```bash
+node bin/nay.js guide                                   # consignes de l'orchestrateur
+node bin/nay.js usage adversaire toujours               # enregistrer la règle (ou « demander »)
+node bin/nay.js role adversaire brief.md --cwd /projet --diff HEAD
+```
+
+`nay role` choisit le modèle selon l'ordre du rôle et les quotas, ajoute au brief la description et
+les consignes du rôle, et lance l'agent dans l'accès du rôle. `--diff <révision>` joint le diff
+(utile en lecture seule, où l'agent ne peut pas lancer git). En lecture seule, un modèle en échec
+cède la place au suivant ; en écriture, on s'arrête. `--commit` comme pour `nay run`.
+Les rôles intégrés (`explorateur`, `developpeur`, `relecteur`…) gardent leur comportement.
+
 ## Tests
 
 ```bash

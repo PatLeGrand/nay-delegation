@@ -100,7 +100,7 @@ test('choose relecteur sans auteur renvoie 1 sans choisir d’agent', async () =
 test('check-config valide la configuration du dépôt', async () => {
   const captured = streams();
   assert.equal(await runCommand(['check-config'], captured), 0);
-  assert.equal(captured.stdout, 'Configuration de délégation valide\n');
+  assert.equal(captured.stdout, 'Configuration de délégation valide\nConfig perso : aucune (valeurs du dépôt)\n');
   assert.equal(captured.stderr, '');
 });
 
