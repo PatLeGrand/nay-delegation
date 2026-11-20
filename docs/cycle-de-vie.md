@@ -65,14 +65,20 @@ statut et du message d'erreur.
 
 ```bash
 nay wait <id>... [--until done,failed,needs_input] [--all] [--timeout <min>]
-nay wait --feature <nom> [--until …] [--timeout <min>]
+nay wait --feature <nom> [--feature <nom>...] [--since 10m|<ISO>] [--until …] [--all] [--timeout <min>]
 ```
 
 - Bloque jusqu'à ce qu'**un** des travaux (ou **tous** avec `--all`) atteigne un état de
   `--until`, puis affiche une ligne par travail. Sans `--until` : `done,failed,needs_input`.
 - `--feature` : suit les travaux de la fonctionnalité **non terminés au lancement de la
   commande ou commencés après** (stories, et appels hors story) ; pratique juste après un
-  `nay story … &`, avant de connaître son identifiant.
+  `nay story … &`, avant de connaître son identifiant. Répétable : plusieurs fonctionnalités
+  en une seule attente.
+- `--since <durée|date>` (avec `--feature`) : suit aussi les travaux **commencés depuis**
+  (`30s`, `10m`, `2h` ou date ISO), même s'ils sont déjà terminés. Évite de manquer un
+  travail fini avant le lancement de l'attente, par exemple en enchaînant deux attentes.
+  Sans `--since`, un travail déjà terminé n'est jamais suivi : `nay wait --feature f` ne rend
+  pas la main sur l'ancienne story de `f`.
 - Un identifiant (ou une fonctionnalité sans travail) qui n'apparaît pas dans le journal sous
   `appearGraceSec` est une erreur.
 - Lecture du journal par Nay toutes les `pollMs` ; l'appelant ne sonde pas.

@@ -195,3 +195,43 @@ test('Relecture : story_end écrit même si la story lève une exception, secret
   assert.doesNotMatch(jobsText, /abcdef123456|ghp_secretvalue123/);
   assert.match(jobsText, /masqué/);
 });
+
+test('nay wait --since : inclut les travaux déjà finis commencés depuis ; --feature répétable', async (t) => {
+  const { parseSince } = await import('../src/wait.js');
+  assert.equal(parseSince('90s', T0), T0 - 90_000);
+  assert.equal(parseSince('10m', T0), T0 - 600_000);
+  assert.equal(parseSince('2h', T0), T0 - 7_200_000);
+  assert.equal(parseSince('2026-11-19T09:00:00Z', T0), Date.parse('2026-11-19T09:00:00Z'));
+  assert.throws(() => parseSince('hier', T0), /--since/);
+
+  // Cas réel : la manche 2 de Terra finit avant que la seconde attente commence.
+  const { dir, write } = await journal(t);
+  await write('2026-11-19.jsonl', [
+    call('ancien', 'call_start', -3600, { feature: 'm2' }), call('ancien', 'call_end', -3590, { status: 'ok', feature: 'm2' }),
+    call('terra', 'call_start', -40, { feature: 'm2' }), call('terra', 'call_end', -5, { status: 'ok', feature: 'm2' }),
+    call('flash', 'call_start', -40, { feature: 'm2' }),
+  ]);
+  let step = 0;
+  const { out, options } = waitHarness(dir, { onPause: async () => {
+    step += 1;
+    if (step === 2) await write('2026-11-19.jsonl', [call('flash', 'call_end', 2, { status: 'ok', feature: 'm2' })]);
+  } });
+  assert.equal(await waitCommand(['--feature', 'm2', '--since', '10m', '--all'], options), WAIT_EXIT.reached);
+  assert.match(out.stdout, /appel terra · done/);
+  assert.match(out.stdout, /appel flash · done/);
+  assert.doesNotMatch(out.stdout, /ancien/);
+
+  // Sans --since, comportement inchangé : la story déjà finie n'est pas suivie.
+  const plain = waitHarness(dir);
+  assert.equal(await waitCommand(['--feature', 'm2', '--timeout', '0.05'], plain.options), WAIT_EXIT.timeout);
+
+  // Plusieurs fonctionnalités en une commande.
+  await write('2026-11-19.jsonl', [call('m1', 'call_start', 0, { feature: 'm1' }), call('m1', 'call_end', 1, { status: 'ok', feature: 'm1' })]);
+  const both = waitHarness(dir);
+  assert.equal(await waitCommand(['--feature', 'm1', '--feature', 'm2', '--since', '5m', '--all'], both.options), WAIT_EXIT.reached);
+  assert.equal(both.out.stdout.trim().split('\n').length, 3);
+
+  for (const args of [['a', '--since', '10m'], ['--feature', 'm2', '--since', 'hier']]) {
+    assert.equal(await waitCommand(args, waitHarness(dir).options), WAIT_EXIT.error, args.join(' '));
+  }
+});

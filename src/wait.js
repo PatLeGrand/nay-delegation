@@ -73,21 +73,34 @@ export function createEventTail(directory, { since }) {
   };
 }
 
-function parseWaitArgs(args, config) {
+const SINCE_UNITS = { s: 1000, m: 60_000, min: 60_000, h: 3_600_000 };
+
+// `--since 10m` (durée avant maintenant) ou une date ISO.
+export function parseSince(value, now) {
+  const relative = /^(\d+(?:\.\d+)?)(s|min|m|h)$/.exec(value);
+  const at = relative ? now - Number(relative[1]) * SINCE_UNITS[relative[2]] : Date.parse(value);
+  if (!Number.isFinite(at)) throw new Error('--since : durée (30s, 10m, 2h) ou date ISO');
+  return at;
+}
+
+function parseWaitArgs(args, config, now) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
     until: { type: 'string' }, all: { type: 'boolean', default: false },
-    timeout: { type: 'string' }, feature: { type: 'string' },
+    timeout: { type: 'string' }, feature: { type: 'string', multiple: true }, since: { type: 'string' },
   } });
-  if ((positionals.length > 0) === (values.feature !== undefined)) {
+  const features = values.feature ?? [];
+  if ((positionals.length > 0) === (features.length > 0)) {
     throw new Error('nay wait : donner des identifiants ou --feature <nom>, pas les deux');
   }
+  if (values.since !== undefined && !features.length) throw new Error('--since va avec --feature');
+  const sinceMs = values.since === undefined ? null : parseSince(values.since, now);
   const until = values.until === undefined ? config.defaultUntil
     : values.until.split(',').map((state) => state.trim()).filter(Boolean);
   const unknown = until.filter((state) => !STATES.includes(state));
   if (!until.length || unknown.length) throw new Error(`--until : états possibles ${STATES.join(', ')}`);
   const timeoutMin = values.timeout === undefined ? config.defaultTimeoutMin : Number(values.timeout);
   if (!Number.isFinite(timeoutMin) || timeoutMin <= 0) throw new Error('--timeout : minutes > 0');
-  return { ids: positionals, feature: values.feature, until, all: values.all, timeoutMin };
+  return { ids: positionals, features, sinceMs, until, all: values.all, timeoutMin };
 }
 
 function describe(status, now) {
@@ -110,36 +123,39 @@ function pendingLine(id) {
   return `${id} · inconnu (absent du journal)`;
 }
 
-// Les travaux d'une fonctionnalité déjà terminés au lancement sont ignorés : on attend ceux en
-// cours et ceux qui commencent ensuite.
-function featureTargets(jobs, feature, baseline, now, config) {
-  const all = featureJobs(jobs, feature);
+// Les travaux déjà terminés au lancement sont ignorés (sinon `nay story & nay wait --feature f`
+// rendrait la main sur l'ancienne story de f), sauf ceux commencés depuis `--since`.
+function featureTargets(jobs, { features, sinceMs }, baseline, now, config) {
+  const all = [...new Set(features.flatMap((feature) => featureJobs(jobs, feature)))];
   if (!baseline.ids) {
     baseline.ids = new Set(all);
-    baseline.active = all.filter((id) => !TERMINAL.includes(jobStatus(jobs, id, now, config).state));
+    baseline.kept = all.filter((id) => {
+      const status = jobStatus(jobs, id, now, config);
+      return !TERMINAL.includes(status.state) || (sinceMs !== null && status.job.startedAt >= sinceMs);
+    });
   }
-  return [...baseline.active, ...all.filter((id) => !baseline.ids.has(id))];
+  return [...baseline.kept, ...all.filter((id) => !baseline.ids.has(id))];
 }
 
 export async function waitCommand(args, { output = process.stdout, errorOutput = process.stderr,
   now = Date.now, lifecycleConfig = loadLifecycleConfig(), monitorConfig = loadMonitorConfig(),
   directory = resolve(repositoryRoot(), monitorConfig.eventsDir), pause = sleep } = {}) {
   let options;
-  try { options = parseWaitArgs(args, lifecycleConfig); } catch (error) {
+  const started = now();
+  try { options = parseWaitArgs(args, lifecycleConfig, started); } catch (error) {
     errorOutput.write(`${error.message}\n`);
     return WAIT_EXIT.error;
   }
   const config = { ...lifecycleConfig, silenceSec: monitorConfig.silenceSec };
-  const started = now();
   // La veille aussi : une story lancée avant minuit se termine dans le fichier du lendemain.
-  const tail = createEventTail(directory, { since: new Date(started - DAY_MS).toISOString().slice(0, 10) });
+  const firstDay = Math.min(started - DAY_MS, options.sinceMs ?? Infinity);
+  const tail = createEventTail(directory, { since: new Date(firstDay).toISOString().slice(0, 10) });
   const baseline = {};
   const deadline = started + options.timeoutMin * 60_000;
   for (;;) {
     const jobs = await tail.poll();
     const current = now();
-    const ids = options.feature === undefined ? options.ids
-      : featureTargets(jobs, options.feature, baseline, current, config);
+    const ids = options.features.length ? featureTargets(jobs, options, baseline, current, config) : options.ids;
     const statuses = ids.map((id) => jobStatus(jobs, id, current, config));
     const missing = ids.filter((_, index) => !statuses[index]);
     const known = statuses.filter(Boolean);
@@ -148,7 +164,7 @@ export async function waitCommand(args, { output = process.stdout, errorOutput =
     const graceOver = current - started > config.appearGraceSec * 1000;
     if (graceOver && (missing.length || !ids.length)) {
       errorOutput.write(ids.length ? `Inconnu dans le journal : ${missing.join(', ')}\n`
-        : `Aucun travail en cours ou nouveau pour la fonctionnalité ${options.feature}\n`);
+        : `Aucun travail en cours ou nouveau pour : ${options.features.join(', ')}\n`);
       return WAIT_EXIT.error;
     }
     const done = ids.length > 0 && (options.all ? reached.length === ids.length : reached.length > 0);
