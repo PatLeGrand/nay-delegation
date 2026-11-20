@@ -12,7 +12,9 @@ import { COMMIT_INSTRUCTIONS, commitAndRecord, parseCommitRequest } from './comm
 import { formatStory, runStory } from './story.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
-import { readConfig, repositoryRoot } from './config.js';
+import { loadEventConfig, readConfig, repositoryRoot } from './config.js';
+import { createJournal } from './eventLog.js';
+import { waitCommand } from './wait.js';
 import { startServer } from './server/app.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from './quota/index.js';
 import { remainingPct } from './quota/common.js';
@@ -23,7 +25,8 @@ const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
       [--skip-permissions]   (agy en écriture, worktree Git lié uniquement)
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
-  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>]
+  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>]
+  nay wait <id>... | --feature <nom>  [--until done,failed,needs_input] [--all] [--timeout <min>]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
   nay check-config
   nay quota
@@ -86,19 +89,36 @@ function simulatedAvailability(list) {
   return (agent) => !unavailable.has(agent);
 }
 
+const JOB_ID = /^[A-Za-z0-9_.-]{1,64}$/;
+
+function storyJournal() {
+  try {
+    const config = loadEventConfig();
+    return createJournal(resolve(repositoryRoot(), config.directory), config);
+  } catch (error) {
+    process.stderr.write(`Journal de la story désactivé : ${error.message}\n`);
+    return { emit() {}, flush: async () => {} };
+  }
+}
+
 // Boucle complète dev → commit → revue → correction, rendue en quelques lignes.
 async function storyCommand(args, { input, output, execute, quotasReader, storyRunner }) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
     cwd: { type: 'string' }, feature: { type: 'string' }, rounds: { type: 'string', default: '2' },
+    id: { type: 'string' },
   } });
+  if (values.id !== undefined && !JOB_ID.test(values.id)) throw new Error('--id : 1 à 64 caractères parmi A-Z a-z 0-9 _ . -');
   if (positionals.length !== 1) throw new Error(USAGE);
   const rounds = Number(values.rounds);
   if (!Number.isInteger(rounds) || rounds < 1) throw new Error('--rounds doit être un entier ≥ 1');
   const [brief] = positionals;
   const text = brief === '-' ? await readStdin(input) : await readFile(brief, 'utf8');
   const cwd = resolve(values.cwd ?? process.cwd());
+  const journal = storyJournal();
   const report = await storyRunner(text, { cwd, feature: values.feature ?? basename(cwd), maxRounds: rounds,
-    execute, isAvailable: await quotaAvailability(quotasReader) });
+    execute, isAvailable: await quotaAvailability(quotasReader), journal: journal.emit,
+    ...(values.id ? { storyId: values.id } : {}) });
+  await journal.flush();
   output.write(formatStory(report));
   return report.code;
 }
@@ -146,7 +166,7 @@ async function readStdin(stream) {
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
   committer = commitAndRecord, storyRunner = runStory, updater = runUpdate,
-  catalog = createCatalog({ root: repositoryRoot() }) } = {}) {
+  catalog = createCatalog({ root: repositoryRoot() }), waitOptions = {} } = {}) {
   try {
     if (args[0] === 'update') {
       if (args.length !== 1) throw new Error(USAGE);
@@ -169,6 +189,7 @@ export async function runCommand(args, { input = process.stdin, output = process
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
     if (args[0] === 'models') return await modelsCommand(args.slice(1), output, catalog);
+    if (args[0] === 'wait') return await waitCommand(args.slice(1), { output, now, ...waitOptions });
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
       'read-only': { type: 'boolean', default: false },
       feature: { type: 'string' }, role: { type: 'string' }, cwd: { type: 'string' },

@@ -649,3 +649,32 @@ test('Claude : la reprise conserve sa consommation propre sans champ cumulatif',
     assert.equal(Object.hasOwn(value, 'usageCumulative'), false);
   }
 });
+
+test('call_end qualifie la fin pour nay wait : reprise, cause, question et storyId', async (t) => {
+  const session = '33333333-3333-4333-8333-333333333333';
+  let count = 0;
+  const cwd = await setup(t, ({ child }) => {
+    count += 1;
+    if (count === 1) {
+      finish(child, [
+        JSON.stringify({ event: 'init', conversation_id: session }),
+        JSON.stringify({ event: 'step_update', step_update: { step_type: 'tool', step_index: 1, tool_name: 'run_command',
+          state: 'DONE', tool_info: { parameters: { CommandLine: 'ls' }, output: '' } } }),
+        JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: '' } }),
+      ].join('\n'));
+    } else {
+      finish(child, JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Je garde quel nom ?' } }));
+    }
+  });
+  const result = await runAgent('hydrogen', 'brief', { cwd, mode: 'read', storyId: 'abc123' });
+  assert.equal(result.retrying, undefined);
+  const { createEventTail } = await import('../src/wait.js');
+  const { jobStatus } = await import('../src/lifecycle.js');
+  const jobs = await createEventTail(join(cwd, '.nay/state/events'), { since: '2000-01-01' }).poll();
+  const [first, second] = Object.values(jobs.calls).sort((a, b) => a.startedAt - b.startedAt);
+  assert.deepEqual([first.end.retrying, first.end.cause, first.storyId], [true, 'shell_blocked', 'abc123']);
+  assert.deepEqual([second.resumedFrom, second.end.question], [first.id, true]);
+  const config = { silenceSec: 180, quotaPattern: 'quota' };
+  assert.deepEqual([jobStatus(jobs, first.id, Date.now(), config).state, jobStatus(jobs, first.id, Date.now(), config).via],
+    ['needs_input', second.id]);
+});

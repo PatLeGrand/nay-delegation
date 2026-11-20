@@ -7,6 +7,7 @@ import { createEventSink, maskSecrets } from './eventLog.js';
 import { isSessionId } from './session.js';
 import { writeClaudeQuota } from './quota/claude.js';
 import { getAgent, loadEngineConfig, loadEventConfig, repositoryRoot } from './config.js';
+import { endsWithQuestion, failureCause, loadLifecycleConfig } from './lifecycle.js';
 import { appendUsage, readUsage } from './usageLog.js';
 import { emptyUsage, subtractUsage } from './cli/usage.js';
 import * as codex from './cli/codex.js';
@@ -152,11 +153,19 @@ function executionError(execution) {
   }
 }
 
+// Champs lus par `nay wait` (docs/cycle-de-vie.md) : c'est Nay qui qualifie la fin, pas l'agent.
+function lifecycleFields(result) {
+  if (result.status === 'ok') return endsWithQuestion(result.text) ? { question: true } : {};
+  let quotaPattern;
+  try { ({ quotaPattern } = loadLifecycleConfig()); } catch { quotaPattern = null; }
+  return { cause: failureCause(result, quotaPattern), ...(result.retrying ? { retrying: true } : {}) };
+}
+
 function configuredModel(name) {
   try { return getAgent(name).model; } catch { return null; }
 }
 
-function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom, onSession }) {
+function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom, storyId, onSession }) {
   let config;
   try { config = loadEventConfig(); } catch (error) {
     process.stderr.write(`Journal d’événements désactivé : ${error.message}\n`);
@@ -165,7 +174,8 @@ function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, r
     }, flush: async () => {} };
   }
   const sink = createEventSink({ callId, agent: name, model: configuredModel(name),
-    feature: feature ?? null, role: role ?? null }, resolve(journalRoot, config.directory), config, onEvent);
+    feature: feature ?? null, role: role ?? null, ...(storyId ? { storyId } : {}) },
+  resolve(journalRoot, config.directory), config, onEvent);
   sink.emit({ kind: 'call_start', mode, resumedFrom });
   let quotaPending = Promise.resolve();
   const seen = { lastToolKind: null };
@@ -186,30 +196,29 @@ function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, r
 }
 
 export async function runAgent(name, prompt, options = {}) {
-  const result = await runAgentOnce(name, prompt, options);
   // Une seule seconde chance : reprendre la session en rappelant l'interdiction du shell.
   // Pas de reprise quand l'appelant impose le callId (interface) : il suit cet appel précis et
   // verrait l'échec sans la seconde tentative ; l'erreur explicite lui permet de reprendre.
-  if (!result.shellBlocked || options.shellRetried || options.callId || !isSessionId(result.sessionId)) {
-    return clean(result);
-  }
+  const result = await runAgentOnce(name, prompt, { ...options, mayRetry: !options.shellRetried && !options.callId });
+  if (!result.retrying) return clean(result);
   const retry = await runAgentOnce(name, AGY_SHELL_RETRY, { ...options, resume: result.sessionId,
     resumedFrom: result.callId, shellRetried: true });
   return clean(retry);
 }
 
-function clean({ shellBlocked, ...result }) {
+function clean({ shellBlocked, retrying, ...result }) {
   return result;
 }
 
 async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(), feature, role, onEvent, journalRoot = repositoryRoot(),
-  resume, resumedFrom = null, callId = randomUUID(), usagePath, effort, skipPermissions = false } = {}) {
+  resume, resumedFrom = null, callId = randomUUID(), usagePath, effort, skipPermissions = false, storyId,
+  mayRetry = false } = {}) {
   const started = performance.now();
   const engine = loadEngineConfig();
   const workDir = resolve(cwd);
   const result = { callId, sessionId: null, agent: name, model: null, effort: null, mode, status: 'error',
     text: '', usage: emptyUsage(), durationMs: 0 };
-  const events = callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom,
+  const events = callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom, storyId,
     onSession(id) { if (id) result.sessionId = id; } });
   let call;
   let cumulativeUsage = false;
@@ -266,12 +275,13 @@ async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(),
     }
     result.durationMs = Math.round(performance.now() - started);
     if (result.error) result.error = maskError(result.error);
+    result.retrying = mayRetry && result.shellBlocked === true && isSessionId(result.sessionId);
     events.sink.emit({ kind: 'call_end', sessionId: result.sessionId, status: result.status, usage: result.usage, durationMs: result.durationMs,
       ...(result.usageCumulative ? { usageCumulative: result.usageCumulative } : {}),
-      ...(result.error ? { error: result.error } : {}) });
+      ...(result.error ? { error: result.error } : {}), ...lifecycleFields(result) });
     await events.flush();
     // Le journal conserve les métadonnées, sans dupliquer les réponses des agents.
-    const { text, shellBlocked, ...entry } = result;
+    const { text, shellBlocked, retrying, ...entry } = result;
     await appendUsage({ ...entry, feature, role, resumedFrom, cwd: workDir }, resolve(journalRoot, usagePath ?? engine.usageLogPath));
   }
   return result;

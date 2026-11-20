@@ -102,7 +102,7 @@ agent et ne consomment aucun jeton.
 ## Enchaîner dev et revue (`nay story`)
 
 ```bash
-node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2]
+node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>]
 ```
 
 Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier :
@@ -120,6 +120,7 @@ Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier 
 Sortie courte, conçue pour l'orchestrateur :
 
 ```text
+Story : 3f2a9c1d
 Dev : sonnet (sauté : sol — quota épuisé)
 Commit : 3f2a1c9 feat(providers): …
 Revue : hydrogen PASS (tour 1)
@@ -136,6 +137,32 @@ le dit (« Shell bloqué en mode plan ») et Nay reprend une fois la session san
 
 Code de sortie : `0` revue PASS, `1` bloqué ou défauts restants (constats du relecteur
 affichés), `2` aucun agent disponible. `--feature` vaut par défaut le nom du dossier.
+Si le dev s'arrête sur une question sans rien modifier, la story s'arrête (`BLOQUÉ`) et
+affiche la question.
+
+## Attendre un appel ou une story (`nay wait`)
+
+```bash
+node bin/nay.js story brief.md --cwd /projet --feature quotas &   # ou nay run … &
+node bin/nay.js wait --feature quotas
+node bin/nay.js wait <callId|storyId>... [--until done,failed,needs_input] [--all] [--timeout <min>]
+```
+
+Bloque, sans que l'appelant ait à sonder, jusqu'au prochain état utile d'un des travaux suivis
+(de tous avec `--all`), puis affiche une ligne par travail :
+
+```text
+story 3f2a9c1d · done · feature quotas · dev sol · revue terra PASS · 4 min
+appel 1d917a8b-… · needs_input · haiku · feature quotas · 3 s
+```
+
+États déduits du journal d'événements : `accepted`, `working`, `stalled`, `needs_input`
+(l'agent finit sur une question), `done`, `failed` avec une cause (`quota`, `timeout`,
+`shell_blocked`, `empty`, `crash` ; pour une story `no_agent`, `blocked`, `defects`).
+`--feature` suit les travaux de la fonctionnalité en cours au lancement ou qui commencent
+ensuite : on peut attendre une story lancée en arrière-plan sans connaître son identifiant.
+Codes de sortie : `0` état atteint, `1` erreur ou identifiant inconnu, `2` délai dépassé.
+Contrat complet : [docs/cycle-de-vie.md](docs/cycle-de-vie.md) ; réglages dans `config/lifecycle.json`.
 
 ## Reprendre une session
 

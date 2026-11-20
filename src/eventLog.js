@@ -73,7 +73,9 @@ export function maskEvent(event, config) {
   const mask = (value) => maskSecrets(value, config);
   return { ...event,
     ...(event.tool ? { tool: { ...event.tool, target: mask(event.tool.target) } } : {}),
-    ...Object.fromEntries(['text', 'output', 'error'].filter((key) => key in event).map((key) => [key, mask(event[key])])) };
+    // `detail` et les verdicts sautés d'une story reprennent le stderr de git ou d'un CLI.
+    ...(Array.isArray(event.reviews) ? { reviews: event.reviews.map((review) => ({ ...review, verdict: mask(review.verdict) })) } : {}),
+    ...Object.fromEntries(['text', 'output', 'error', 'detail'].filter((key) => key in event).map((key) => [key, mask(event[key])])) };
 }
 
 function matchTool(tools, tool) {
@@ -94,6 +96,16 @@ export function createEventSink(metadata, directory, config, onEvent) {
     }
     const event = truncateEvent(maskEvent({ ...raw, ...common, ts: new Date().toISOString() }, config), config);
     try { Promise.resolve(onEvent?.(event)).catch(() => {}); } catch { /* Un observateur ne doit pas arrêter le travail. */ }
+    pending = pending.then(() => appendEvent(event, directory, config)).catch(() => {});
+  }
+  return { emit, flush: () => pending };
+}
+
+// Événements hors appel (story_start / story_end) : mêmes masquage, troncature et fichier du jour.
+export function createJournal(directory, config) {
+  let pending = Promise.resolve();
+  function emit(raw) {
+    const event = truncateEvent(maskEvent({ v: 1, ...raw, ts: new Date().toISOString() }, config), config);
     pending = pending.then(() => appendEvent(event, directory, config)).catch(() => {});
   }
   return { emit, flush: () => pending };
