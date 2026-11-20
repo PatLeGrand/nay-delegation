@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readdir, readFile, readlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { COMMIT_INSTRUCTIONS, commitAndRecord, lastMarker, parseCommitRequest } from './commit.js';
 import { chooseAgent } from './delegation.js';
 import { runAgent } from './runAgent.js';
+import { endsWithQuestion } from './lifecycle.js';
 
 const run = promisify(execFile);
 const MAX_DIFF_CHARS = 60_000;
@@ -130,10 +131,27 @@ function withoutMarkers(text = '') {
   return text.split('\n').filter((line) => !/^NAY-[A-Z]+:/.test(line)).join('\n').trim();
 }
 
-export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds = 2, execute = runAgent,
-  isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord } = {}) {
+// Les événements story_start / story_end permettent à `nay wait` de suivre la story entière ;
+// `journal` est fourni par la CLI pour que les tests n'écrivent pas dans le journal réel.
+export async function runStory(brief, { storyId = newStoryId(), journal = () => {}, ...options } = {}) {
+  const { cwd = process.cwd(), feature = null } = options;
+  journal({ kind: 'story_start', storyId, feature, cwd });
+  const report = await storyRounds(brief, { ...options, storyId });
+  journal({ kind: 'story_end', storyId, feature, status: report.status, code: report.code,
+    question: report.question, detail: report.detail, dev: report.dev, reviews: report.reviews,
+    commits: report.commits });
+  return { ...report, storyId };
+}
+
+export function newStoryId() {
+  return randomBytes(4).toString('hex');
+}
+
+async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2, execute = runAgent,
+  isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord, storyId } = {}) {
   const report = { dev: null, devSkipped: [], commits: [], reviews: [], checks: null, status: 'OK',
-    code: EXIT.ok, detail: null, findings: null };
+    code: EXIT.ok, detail: null, findings: null, question: false };
+  const run = (agent, prompt, options) => execute(agent, prompt, { ...options, storyId });
   const isGit = await git.isRepo(cwd);
   const unavailable = new Set();
   const availability = (agent) => !unavailable.has(agent) && isAvailable(agent);
@@ -152,7 +170,7 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
       return stop('AUCUN AGENT', EXIT.noAgent, error.message);
     }
     const before = await git.snapshot(cwd, isGit);
-    const result = await execute(agent, devPrompt, { mode: 'write', cwd, feature, role: 'dev' });
+    const result = await run(agent, devPrompt, { mode: 'write', cwd, feature, role: 'dev' });
     if (result.status === 'ok') {
       dev = result;
       break;
@@ -184,7 +202,11 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
           return stop('BLOQUÉ', EXIT.blocked, `Commit impossible : ${error.stderr?.trim() || error.message}`);
         }
       } else if (round === 1 && !(await git.status(cwd)).trim()) {
-        return stop('BLOQUÉ', EXIT.blocked, 'Le dev n’a rien modifié ni demandé de commit');
+        // Un dev qui s'arrête sur une question attend une réponse : `nay wait` le signale (needs_input).
+        report.question = endsWithQuestion(dev.text);
+        if (report.question) report.findings = withoutMarkers(dev.text);
+        return stop('BLOQUÉ', EXIT.blocked, report.question ? 'Le dev pose une question'
+          : 'Le dev n’a rien modifié ni demandé de commit');
       } else {
         target = `les modifications non committées, dont voici le diff (ouvre les fichiers si tu as `
           + `besoin de plus de contexte) :\n\n\`\`\`diff\n${await git.uncommitted(cwd, MAX_DIFF_CHARS)}\n\`\`\``;
@@ -203,7 +225,7 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
       } catch (error) {
         return stop('AUCUN AGENT', EXIT.noAgent, error.message);
       }
-      const result = await execute(agent, reviewPrompt, { mode: 'read', cwd, feature, role: 'relecteur' });
+      const result = await run(agent, reviewPrompt, { mode: 'read', cwd, feature, role: 'relecteur' });
       if (result.status === 'ok') {
         review = result;
         break;
@@ -222,7 +244,7 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
     // Correction : on reprend la conversation du dev quand c'est possible.
     const fixPrompt = `Retours de revue à corriger (seulement ceux-ci) :\n${withoutMarkers(review.text)}`
       + `${isGit ? COMMIT_INSTRUCTIONS : ''}${CHECKS_INSTRUCTIONS}`;
-    const fix = await execute(dev.agent, dev.sessionId ? fixPrompt : `${brief}\n\n${fixPrompt}`, {
+    const fix = await run(dev.agent, dev.sessionId ? fixPrompt : `${brief}\n\n${fixPrompt}`, {
       mode: 'write', cwd, feature, role: 'dev',
       ...(dev.sessionId ? { resume: dev.sessionId, resumedFrom: dev.callId } : {}) });
     if (fix.status !== 'ok') {
@@ -242,6 +264,7 @@ export function formatStory(report) {
       ? report.reviews.map(({ agent, round, verdict }) => `${agent} ${verdict} (tour ${round})`).join(' ; ') : 'aucune'}`,
     `Contrôles : ${report.checks ?? 'non rapportés'}`,
     `Statut : ${report.status}${report.detail ? ` — ${report.detail}` : ''}`];
-  if (report.findings) lines.push('', 'Constats du relecteur :', report.findings);
+  if (report.storyId) lines.unshift(`Story : ${report.storyId}`);
+  if (report.findings) lines.push('', report.question ? 'Question du dev :' : 'Constats du relecteur :', report.findings);
   return `${lines.join('\n')}\n`;
 }

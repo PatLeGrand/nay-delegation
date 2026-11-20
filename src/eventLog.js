@@ -98,3 +98,13 @@ export function createEventSink(metadata, directory, config, onEvent) {
   }
   return { emit, flush: () => pending };
 }
+
+// Événements hors appel (story_start / story_end) : mêmes masquage, troncature et fichier du jour.
+export function createJournal(directory, config) {
+  let pending = Promise.resolve();
+  function emit(raw) {
+    const event = truncateEvent(maskEvent({ v: 1, ...raw, ts: new Date().toISOString() }, config), config);
+    pending = pending.then(() => appendEvent(event, directory, config)).catch(() => {});
+  }
+  return { emit, flush: () => pending };
+}
