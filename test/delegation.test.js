@@ -35,8 +35,11 @@ test('Tous les agents indisponibles : erreur avec les candidats et les raisons',
     /Aucun agent disponible.*terra \(indisponible\), gemini-flash \(indisponible\)/);
 });
 
+// Liste fixe : ces tests portent sur la règle, pas sur l'ordre réglé dans config/delegation.json.
+const solThenSonnet = () => ({ ...loadDelegation(), developpeur: ['sol', 'sonnet'] });
+
 test('Le développeur de secours est choisi si sol est indisponible', () => {
-  assert.deepEqual(chooseAgent('developpeur', { isAvailable: (agent) => agent !== 'sol' }),
+  assert.deepEqual(chooseAgent('developpeur', { delegation: solThenSonnet(), isAvailable: (agent) => agent !== 'sol' }),
     { agent: 'sonnet', skipped: [{ agent: 'sol', reason: 'indisponible' }] });
 });
 
@@ -87,12 +90,12 @@ test('Les sélecteurs rejettent clairement les configurations injectées invalid
 
 test('La disponibilité doit être un booléen strict pour chaque agent essayé', () => {
   for (const result of [Promise.resolve(true), {}, undefined, null, 0, 1, '', 'true']) {
-    assert.throws(() => chooseAgent('developpeur', { isAvailable: () => result }),
+    assert.throws(() => chooseAgent('developpeur', { delegation: solThenSonnet(), isAvailable: () => result }),
       /isAvailable doit renvoyer un booléen pour sol/);
   }
   assert.throws(() => chooseAgent('developpeur', { isAvailable: null }),
     /isAvailable doit être une fonction/);
-  assert.throws(() => chooseAgent('developpeur', {
+  assert.throws(() => chooseAgent('developpeur', { delegation: solThenSonnet(),
     isAvailable: (agent) => agent === 'sol' ? false : undefined,
   }), /isAvailable doit renvoyer un booléen pour sonnet/);
 });
