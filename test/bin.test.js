@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCommand } from '../src/command.js';
+import { readConfig } from '../src/config.js';
 
 function streams(text = '') {
   const captured = { stdout: '', stderr: '', input: Readable.from([text]) };
@@ -77,10 +78,11 @@ test('choose affiche le choix et les raisons sans appeler d’agent', async () =
 
 test('choose renvoie 1 et explique pourquoi aucun agent ne convient', async () => {
   const captured = streams();
-  const code = await runCommand(['choose', 'developpeur', '--unavailable', 'sol,sonnet'], captured);
+  const developers = readConfig('delegation').developpeur;
+  const code = await runCommand(['choose', 'developpeur', '--unavailable', developers.join(',')], captured);
   assert.equal(code, 1);
   assert.equal(captured.stdout, '');
-  assert.match(captured.stderr, /sol \(indisponible\), sonnet \(indisponible\)/);
+  assert.match(captured.stderr, new RegExp(developers.map((name) => `${name} \\(indisponible\\)`).join(', ')));
 });
 
 test('choose relecteur sans auteur renvoie 1 sans choisir d’agent', async () => {
