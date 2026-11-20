@@ -42,11 +42,15 @@ export function loadQuotaConfig() {
   return readConfig('quotas');
 }
 
+export function loadModelsConfig() {
+  return readConfig('models');
+}
+
 export function loadAgents() {
   return readConfig('agents');
 }
 
-const EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 
 // `effort` remplace le niveau configuré (ex. benchmark à niveau égal entre agents).
 export function getAgent(name, { effort } = {}) {

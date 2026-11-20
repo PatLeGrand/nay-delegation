@@ -240,3 +240,24 @@ test('resume conserve le code de sortie et le message des échecs agent', async 
   assert.match(captured.stdout, /callId : appel/);
   assert.match(captured.stderr, /Délai maximal dépassé/);
 });
+
+test('models : catalogue par CLI, agents utilisateurs ou « nouveau », --refresh relit les CLI', async () => {
+  const data = { providers: {
+    codex: { status: 'ok', fetchedAt: '2026-11-19T12:00:00.000Z', models: [
+      { model: 'gpt-6.1-sol', efforts: ['low'] }, { model: 'gpt-6.2-sol', efforts: ['low', 'high'] }] },
+    agy: { status: 'error', reason: 'agy absent', fetchedAt: null, stale: false, models: [] },
+  } };
+  let refreshed = 0;
+  const catalog = { get: async () => data, refresh: async () => { refreshed++; return data; } };
+  const captured = streams();
+  assert.equal(await runCommand(['models'], { ...captured, catalog }), 0);
+  assert.match(captured.stdout, /^codex · lu le 2026-11-19 12:00 UTC\n/);
+  assert.match(captured.stdout, /gpt-6\.1-sol +low +sol\n/);
+  assert.match(captured.stdout, /gpt-6\.2-sol +low,high +nouveau\n/);
+  assert.match(captured.stdout, /agy · erreur : agy absent\n/);
+  assert.equal(refreshed, 0);
+  assert.equal(await runCommand(['models', '--refresh'], { ...streams(), catalog }), 0);
+  assert.equal(refreshed, 1);
+  const down = { providers: { codex: { status: 'error', reason: 'x', models: [] } } };
+  assert.equal(await runCommand(['models'], { ...streams(), catalog: { get: async () => down } }), 1);
+});
