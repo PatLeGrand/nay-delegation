@@ -3,6 +3,8 @@ import { readdir } from 'node:fs/promises';
 import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
+import { matchesProject } from '../project.js';
+import { applyEvent, emptyState } from './state.js';
 
 // Fichier du jour uniquement : les fichiers de rotation (AAAA-MM-JJ.1.jsonl) sont exclus.
 const DAILY_FILE = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
@@ -42,4 +44,13 @@ export async function latestEventsFile(dir) {
   }
   const latest = names.filter((name) => DAILY_FILE.test(name)).sort().at(-1);
   return latest ? join(dir, latest) : null;
+}
+
+export async function readCallState(file, config, { feature, project } = {}) {
+  if (!file) return emptyState();
+  // Les événements d'un même appel peuvent ne porter qu'une partie de son identité.
+  const state = await reduceEvents(file, (state, event) => applyEvent(state, event, config), emptyState());
+  if (feature === undefined && !project) return state;
+  return { calls: Object.fromEntries(Object.entries(state.calls).filter(([, call]) =>
+    (feature === undefined || call.feature === feature) && matchesProject(call.project, project))) };
 }

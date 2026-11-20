@@ -31,6 +31,22 @@ test('usage : totaux, groupes triés, filtres et appels récents', () => {
   assert.deepEqual(aggregateUsage([]).recent, []);
 });
 
+test('usage : filtre et agrégats par projet, avec repli sur le cwd historique', () => {
+  const records = [
+    { cwd: '/projets/nay/.nay/worktrees/sujet', feature: 'a', usage: { input: 15 } },
+    { project: 'nay', cwd: '/tmp/repo', feature: 'b', usage: { input: 5 } },
+    { project: null, cwd: '/projets/nay', feature: 'a', usage: { input: 3 } },
+    { cwd: '/tmp/essai', feature: 'a', usage: { input: 2 } },
+  ];
+  assert.deepEqual(aggregateUsage(records).byProject, [
+    { key: 'nay', calls: 2, input: 20, cachedInput: 0, output: 0, durationMs: 0 },
+    { key: null, calls: 2, input: 5, cachedInput: 0, output: 0, durationMs: 0 },
+  ]);
+  assert.equal(aggregateUsage(records, { feature: 'a', project: 'nay' }).totals.input, 15);
+  assert.equal(aggregateUsage(records, { project: '-' }).totals.input, 5);
+  assert.equal(aggregateUsage(records, { project: '' }).totals.calls, 4);
+});
+
 test('fiches réelles fusionnées et fiches partielles', async () => {
   for (const name of ['quotas', 'ordre-delegation', 'flux-evenements', 'appel-agents', 'alertes']) {
     const parsed = parseFeature(await readFile(new URL(`../docs/features/${name}.md`, import.meta.url), 'utf8'), name);
@@ -168,6 +184,50 @@ async function httpChecks(t, memory) {
 
 test('HTTP localhost : sécurité et contrat', (t) => httpChecks(t, false));
 test('Gestionnaires HTTP en mémoire : sécurité et contrat', (t) => httpChecks(t, true));
+
+test('API : liste des projets et filtres cumulés de consommation et de statut', async (t) => {
+  const f = await fixture(t, true);
+  const get = async (path) => {
+    const response = await f.request(path);
+    assert.equal(response.status, 200);
+    return JSON.parse(response.text);
+  };
+  const scratch = { name: null, calls: 0, lastActivity: null, features: [], branches: [] };
+  assert.deepEqual(await get('/api/projects'), [scratch]);
+  const date = (day) => `2026-11-${day}T12:00:00.000Z`;
+  const records = [
+    { project: 'typio', timestamp: date(16), feature: 'serveur', branch: 'main' },
+    { cwd: '/projets/nay/.claude/worktrees/archive', timestamp: date(15), feature: 'archive' },
+    { project: 'nay', timestamp: date(19), feature: 'serveur', branch: 'feature/projets' },
+    { project: 'nay', timestamp: date(14), feature: 'serveur', branch: 'feature/projets' },
+    { project: null, cwd: '/projets/essai', timestamp: date(18) },
+    { cwd: '/tmp/essai', timestamp: date(17) },
+  ];
+  await writeFile(join(f.root, '.nay/state/usage.jsonl'), records.map((entry) => JSON.stringify(entry)).join('\n'));
+  assert.deepEqual(await get('/api/projects'), [
+    { name: 'nay', calls: 3, lastActivity: date(19), features: ['archive', 'serveur'], branches: ['feature/projets'] },
+    { ...scratch, calls: 2, lastActivity: date(18) },
+    { name: 'typio', calls: 1, lastActivity: date(16), features: ['serveur'], branches: ['main'] },
+  ]);
+  assert.equal((await get('/api/usage?project=nay&feature=serveur')).totals.calls, 2);
+  assert.equal((await get('/api/usage?project=-')).totals.calls, 2);
+  assert.equal((await get('/api/usage?project=')).totals.calls, 6);
+
+  const events = [
+    event('nay-serveur', { project: 'nay', branch: 'feature/projets' }),
+    event('nay-serveur', { kind: 'call_end', status: 'ok' }),
+    event('nay-autre', { project: 'nay', feature: 'autre' }),
+    event('typio-serveur', { project: 'typio' }),
+    event('essai', { project: null, branch: null }),
+  ];
+  await appendFile(f.file, events.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
+  const { calls } = await get('/api/status?project=nay&feature=serveur');
+  assert.deepEqual(calls.map(({ callId, project, branch, status }) => [callId, project, branch, status]),
+    [['nay-serveur', 'nay', 'feature/projets', 'ok']]);
+  assert.deepEqual((await get('/api/status?project=-')).calls.map(({ callId, project, branch }) =>
+    [callId, project, branch]), [['ancien', null, null], ['essai', null, null]]);
+  assert.equal((await get('/api/status?project=')).calls.length, 5);
+});
 
 async function streamClient(t, f, query = '') {
   const req = f.dispatch ? null : http.get(`${f.origin}/api/events/stream${query}`);

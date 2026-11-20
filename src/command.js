@@ -2,10 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyEvent, emptyState } from './monitor/state.js';
 import { computeAlerts } from './monitor/alerts.js';
 import { loadMonitorConfig } from './monitor/config.js';
-import { reduceEvents, latestEventsFile } from './monitor/readEvents.js';
+import { latestEventsFile, readCallState } from './monitor/readEvents.js';
 import { formatReport } from './monitor/report.js';
 import { resumeCall } from './resume.js';
 import { COMMIT_INSTRUCTIONS, commitAndRecord, parseCommitRequest } from './commit.js';
@@ -44,25 +43,19 @@ const USAGE = `Usage :
   nay models [--refresh]   (modèles proposés par chaque CLI ; sans --refresh : dernier catalogue connu)
   nay ui
   nay update   (main propre → git pull → check-config → redémarre le service nay-ui)
-  nay status [--file <events.jsonl>] [--feature <nom>]`;
+  nay status [--file <events.jsonl>] [--feature <nom>] [--project <nom|->]`;
 
 // Racine du dépôt Nay : le dossier qui contient config/.
 const NAY_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-function featureReducer(feature, config) {
-  return (state, event) => (feature === undefined || event.feature === feature
-    ? applyEvent(state, event, config) : state);
-}
-
 async function statusCommand(args, output, now) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
-    file: { type: 'string' }, feature: { type: 'string' },
+    file: { type: 'string' }, feature: { type: 'string' }, project: { type: 'string' },
   } });
   if (positionals.length) throw new Error(USAGE);
   const config = loadMonitorConfig();
   const file = values.file ?? await latestEventsFile(resolve(NAY_ROOT, config.eventsDir));
-  const state = file ? await reduceEvents(file, featureReducer(values.feature, config), emptyState())
-    : emptyState();
+  const state = await readCallState(file, config, values);
   // Un fichier sans aucun événement valide donne le même résultat qu'un fichier vide.
   if (!Object.keys(state.calls).length) {
     output.write('Aucun événement\n');

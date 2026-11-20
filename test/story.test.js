@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import childProcess, { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -355,6 +355,29 @@ test('story sur un vrai dépôt : le commit de Nay est relu', async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('story : projet et branche sur le début et la fin, y compris en cas de crash', async (t) => {
+  const cwd = '/projets/nay/.nay/worktrees/projets';
+  t.mock.method(childProcess, 'execFile', (binary, args, options, callback) => {
+    assert.equal(binary, 'git');
+    assert.equal(options.cwd, cwd);
+    callback(null, args[0] === 'rev-parse' ? '/projets/nay/.git\n' : 'feature/projets\n');
+  });
+  const journal = [];
+  const { git } = fakeGit();
+  const run = (options) => story('brief', { cwd, git, delegation, skipRoles: true,
+    journal: (event) => journal.push(event), ...options });
+
+  await run({ isAvailable: () => false });
+  await assert.rejects(run({ git: { isRepo: async () => { throw new Error('crash'); } } }), /crash/);
+  assert.deepEqual(journal.map(({ kind, project, branch }) => [kind, project, branch]), [
+    ['story_start', 'nay', 'feature/projets'],
+    ['story_end', 'nay', 'feature/projets'],
+    ['story_start', 'nay', 'feature/projets'],
+    ['story_end', 'nay', 'feature/projets'],
+  ]);
+  assert.equal(journal.at(-1).cause, 'crash');
 });
 
 test('nay story : la CLI rend le compte rendu et le code de sortie', async () => {

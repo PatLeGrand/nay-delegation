@@ -143,6 +143,19 @@ dossier seul (`read_file(/chemin/dossier)` couvre tout ce qu'il contient).
 Les tests utilisent des processus et des flux simulés ; ils ne lancent aucun
 agent et ne consomment aucun jeton.
 
+## Projets détectés automatiquement
+
+Nay journalise le projet et la branche du dossier de travail. Les worktrees Git liés sont
+regroupés sous le nom du dépôt principal, quel que soit le dossier depuis lequel l'appel part.
+Pour personnaliser ce nom, ajouter `{"name":"Mon projet"}` dans `.nay/project.json` à la racine
+du dépôt principal. Hors Git, les appels sont classés sans projet. Pour les anciennes lignes
+du journal de consommation, Nay déduit le nom du chemin. Les chemins sous les dossiers
+temporaires déclarés dans `config/projects.json` sont classés sans projet.
+
+`nay status --project "Mon projet"` peut se combiner avec `--feature`. Utiliser
+`nay status --project -` pour les appels sans projet. L'API expose aussi la liste des projets et
+les agrégats de consommation par projet. [Documentation de l'API](docs/api.md)
+
 ## Enchaîner dev et revue (`nay story`)
 
 ```bash

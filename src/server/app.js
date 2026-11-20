@@ -5,7 +5,7 @@ import { loadModelsConfig, readConfig, repositoryRoot } from '../config.js';
 import { readUsage } from '../usageLog.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from '../quota/index.js';
 import { loadMonitorConfig } from '../monitor/config.js';
-import { aggregateUsage } from './usage.js';
+import { aggregateUsage, summarizeProjects } from './usage.js';
 import { readStatus } from './status.js';
 import { readCall, readStoryChecks } from './calls.js';
 import { readFeatures } from './features.js';
@@ -49,18 +49,20 @@ function requestPath(request) {
 async function readApi(pathname, params, context) {
   const { root, dataRoot, config, now, quotasReader, monitorConfig, usagePath, todayFile, catalog, userDir } = context;
   const feature = params.has('feature') ? params.get('feature') : undefined;
+  const project = params.get('project');
   if (pathname === '/api/usage') {
     const since = params.has('since') ? params.get('since') : undefined;
     if (since !== undefined && !Number.isFinite(Date.parse(since))) throw httpError(400, 'Date invalide');
     return aggregateUsage(await readUsage(await safePath(dataRoot, usagePath)),
-      { feature, since, recent: config.recentCalls });
+      { feature, project, since, recent: config.recentCalls });
   }
+  if (pathname === '/api/projects') return summarizeProjects(await readUsage(await safePath(dataRoot, usagePath)));
   if (pathname === '/api/quota') {
     const [providers, agentsConfig] = await Promise.all([quotasReader(), context.agentsConfig()]);
     return { providers, agents: Object.entries(agentsConfig.agents).map(([name, agent]) =>
       ({ name, provider: agent.cli, ...isAgentAvailable(name, providers, agentsConfig) })) };
   }
-  if (pathname === '/api/status') return readStatus(await todayFile(), monitorConfig, now(), feature);
+  if (pathname === '/api/status') return readStatus(await todayFile(), monitorConfig, now(), feature, project);
   if (pathname.startsWith('/api/calls/')) {
     const call = await readCall(dataRoot, monitorConfig.eventsDir, pathname.slice('/api/calls/'.length));
     if (!call) throw httpError(404, 'Appel inconnu');

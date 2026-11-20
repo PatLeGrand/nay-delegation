@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LAYERED, mergeLayers, readLayer, userConfigDir } from './userConfig.js';
 
@@ -47,6 +47,19 @@ export function loadEngineConfig(env = process.env) {
 
 export function loadQuotaConfig() {
   return readConfig('quotas');
+}
+
+export function loadProjectConfig() {
+  const config = readRepoConfig('projects');
+  const relativePath = (value) => typeof value === 'string' && value.trim() !== ''
+    && !isAbsolute(value) && value.split('/').every((part) => part && part !== '.' && part !== '..');
+  if (!Array.isArray(config?.worktreeDirs) || !config.worktreeDirs.every(relativePath)
+    || !Array.isArray(config.scratchDirs)
+    || !config.scratchDirs.every((dir) => typeof dir === 'string' && isAbsolute(dir))
+    || !relativePath(config.projectFile)) {
+    throw new Error('Configuration projects invalide');
+  }
+  return config;
 }
 
 export function loadModelsConfig() {

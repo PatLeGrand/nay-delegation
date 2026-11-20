@@ -6,7 +6,7 @@ export function emptyState() {
 
 function newCall(event, ts) {
   return {
-    callId: event.callId, agent: null, model: null, feature: null, role: null, mode: null,
+    callId: event.callId, agent: null, model: null, feature: null, project: null, branch: null, role: null, mode: null,
     status: 'running', startedAt: ts, lastEventAt: ts, endedAt: null,
     currentTools: {}, toolCount: 0, failures: 0, consecutiveFailures: 0, lastFailureAt: null,
     earlyEnds: [], history: [], usage: null,
@@ -20,6 +20,8 @@ function withIdentity(call, event, ts) {
     agent: call.agent ?? event.agent ?? null,
     model: call.model ?? event.model ?? null,
     feature: call.feature ?? event.feature ?? null,
+    project: call.project ?? event.project ?? null,
+    branch: call.branch ?? event.branch ?? null,
     role: call.role ?? event.role ?? null,
     startedAt: Math.min(call.startedAt, ts),
     lastEventAt: Math.max(call.lastEventAt, ts),

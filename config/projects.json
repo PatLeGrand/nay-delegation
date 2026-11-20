@@ -1,0 +1,5 @@
+{
+  "worktreeDirs": [".claude/worktrees", ".nay/worktrees"],
+  "scratchDirs": ["/tmp"],
+  "projectFile": ".nay/project.json"
+}
