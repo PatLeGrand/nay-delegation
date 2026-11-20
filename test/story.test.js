@@ -149,7 +149,7 @@ test('story : dev, commit, revue PASS', async () => {
 
 test('story : contrôles en échec renvoyés au dev sans relecture, puis revue avec le résultat', async () => {
   const { git, state } = fakeGit();
-  const { runs, checker } = fakeChecks([false, true]);
+  const { runs, checker } = fakeChecks([true, false, true]);
   const { calls, execute } = scripted([
     (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait\nNAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
     (agent) => result(agent, 'corrigé\nNAY-COMMIT: fix: a\nNAY-FILES: a.py'),
@@ -157,7 +157,7 @@ test('story : contrôles en échec renvoyés au dev sans relecture, puis revue a
   ]);
   const report = await story('brief', { execute, git, delegation, committer: commitOk, checker, cwd: '/projet' });
   assert.equal(report.code, EXIT.ok);
-  assert.deepEqual(runs, ['/projet', '/projet']);
+  assert.deepEqual(runs, ['/projet', '/projet', '/projet']);
   assert.match(calls[0].prompt, /Nay lancera lui-même ces contrôles : `npm test`/);
   assert.doesNotMatch(calls[0].prompt, /NAY-CHECKS/);
   assert.equal(calls[1].agent, 'sol');
@@ -171,7 +171,7 @@ test('story : contrôles en échec renvoyés au dev sans relecture, puis revue a
 
 test('story : contrôles toujours en échec au dernier tour → CONTRÔLES, sans relecteur', async () => {
   const { git, state } = fakeGit();
-  const { checker } = fakeChecks([false, false]);
+  const { checker } = fakeChecks([true, false, false]);
   const { calls, execute } = scripted([
     (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait\nNAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
     (agent) => result(agent, 'essayé\nNAY-COMMIT: fix: a\nNAY-FILES: a.py'),
@@ -182,6 +182,42 @@ test('story : contrôles toujours en échec au dernier tour → CONTRÔLES, sans
   assert.equal(calls.length, 2);
   assert.match(formatStory(report), /Contrôles : tests ÉCHEC \(code 1\)/);
   assert.match(formatStory(report), /Contrôles en échec :\n### tests — code 1/);
+});
+
+test('story : base rouge avant le dev → BASE ROUGE sans appeler d’agent ; --skip-baseline passe outre', async () => {
+  const { git, state } = fakeGit();
+  const { checker } = fakeChecks([false]);
+  const { calls, execute } = scripted([]);
+  const events = [];
+  const report = await story('brief', { execute, git, delegation, checker, journal: (e) => events.push(e) });
+  assert.equal(report.status, 'BASE ROUGE');
+  assert.equal(report.code, EXIT.blocked);
+  assert.equal(calls.length, 0);
+  assert.match(formatStory(report), /Statut : BASE ROUGE/);
+  assert.match(formatStory(report), /Contrôles déjà en échec avant le travail :\n### tests — code 1/);
+  assert.equal(events.at(-1).status, 'BASE ROUGE');
+
+  // skipBaseline : ne lance pas les contrôles avant le dev.
+  const skipped = fakeChecks([true]);
+  const devFlow = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'réparé\nNAY-COMMIT: fix: tests\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const ok = await story('brief', { execute: devFlow.execute, git, delegation, committer: commitOk,
+    checker: skipped.checker, skipBaseline: true });
+  assert.equal(ok.code, EXIT.ok);
+  assert.equal(skipped.runs.length, 1);
+
+  // baseline: false (réglage config) : même effet sans --skip-baseline.
+  const disabled = fakeChecks([true]);
+  const devFlow2 = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait\nNAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const ok2 = await story('brief', { execute: devFlow2.execute, git, delegation, committer: commitOk,
+    checker: disabled.checker, baseline: false });
+  assert.equal(ok2.code, EXIT.ok);
+  assert.equal(disabled.runs.length, 1);
 });
 
 test('story : un fichier de contrôles invalide bloque avant tout appel d’agent', async () => {
@@ -361,4 +397,121 @@ test('story --dev : l’agent imposé travaille, sans bascule s’il échoue', a
   assert.equal(unknown.status, 'AUCUN AGENT');
   assert.match(unknown.detail, /agent inconnu : inconnu/);
   assert.equal(none.calls.length, 0);
+});
+
+test('story : rôles perso lecture seule « toujours » lancés après PASS, hors auteur, jamais en écriture', async () => {
+  const { git, state } = fakeGit();
+  const roles = {
+    adversaire: { label: 'Agent adversaire', description: 'cherche les failles', mode: 'read', usage: 'toujours' },
+    ui: { label: 'Agent UI', description: 'retouche l’interface', mode: 'write', usage: 'toujours' },
+    securite: { label: 'Sécurité', description: 'audit', mode: 'read', usage: 'proposer' },
+  };
+  const roleDelegation = { ...delegation, adversaire: ['sol', 'terra'], ui: ['sonnet'], securite: ['haiku'] };
+  const events = [];
+  const { calls, execute } = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+    (agent) => result(agent, 'RAS\nNAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation: roleDelegation, committer: commitOk, roles,
+    journal: (e) => events.push(e) });
+  assert.equal(report.code, EXIT.ok);
+  assert.deepEqual(calls.map((c) => [c.agent, c.options.role]), [['sol', 'dev'], ['hydrogen', 'relecteur'], ['terra', 'adversaire']]);
+  assert.equal(calls[2].options.mode, 'read');
+  assert.match(calls[2].prompt, /Tu interviens comme « Agent adversaire » : cherche les failles/);
+  assert.match(calls[2].prompt, /diff du commit abc1/);
+  assert.match(calls[2].prompt, /NAY-VERDICT: PASS/);
+  assert.deepEqual(report.roles, [{ role: 'adversaire', agent: 'terra', round: 1, verdict: 'PASS' }]);
+  assert.deepEqual(events.at(-1).roles, report.roles);
+  assert.match(formatStory(report), /Rôles : adversaire terra PASS \(tour 1\)/);
+
+  // Sans rôle lancé (ou avec --no-roles), la ligne Rôles est absente.
+  const noRolesFlow = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const skipped = await story('brief', { execute: noRolesFlow.execute, git, delegation: roleDelegation,
+    committer: commitOk, roles, skipRoles: true });
+  assert.equal(skipped.code, EXIT.ok);
+  assert.deepEqual(skipped.roles, []);
+  assert.doesNotMatch(formatStory(skipped), /Rôles :/);
+});
+
+test('story : rôle en échec cède la place ; aucun modèle disponible → sauté sans bloquer', async () => {
+  const { git, state } = fakeGit();
+  const roles = {
+    adversaire: { label: 'Adversaire', description: 'casse', mode: 'read', usage: 'toujours' },
+    securite: { label: 'Sécurité', description: 'audit', mode: 'read', usage: 'toujours' },
+  };
+  const roleDelegation = { ...delegation, adversaire: ['terra', 'haiku'], securite: ['sol'] };
+  const { calls, execute } = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+    (agent) => result(agent, '', { status: 'error', error: 'quota' }),
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation: roleDelegation, committer: commitOk, roles });
+  assert.equal(report.code, EXIT.ok);
+  assert.deepEqual(calls.map((c) => c.agent), ['sol', 'hydrogen', 'terra', 'haiku']);
+  assert.deepEqual(report.roles, [
+    { role: 'adversaire', agent: 'terra', round: 1, verdict: 'sauté (quota)' },
+    { role: 'adversaire', agent: 'haiku', round: 1, verdict: 'PASS' },
+    { role: 'securite', agent: null, round: 1, verdict: 'sauté' },
+  ]);
+  assert.match(formatStory(report), /Rôles : adversaire terra sauté \(quota\) \(tour 1\) ; adversaire haiku PASS \(tour 1\) ; securite sauté \(tour 1\)/);
+});
+
+test('story : verdict CHANGES d’un rôle renvoie au dev puis nouvelle relecture complète', async () => {
+  const { git, state } = fakeGit();
+  const roles = {
+    adversaire: { label: 'Agent adversaire', description: 'casse', mode: 'read', usage: 'toujours' },
+  };
+  const roleDelegation = { ...delegation, adversaire: ['terra'] };
+  const { calls, execute } = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+    (agent) => result(agent, 'faille XSS ligne 8\nNAY-VERDICT: CHANGES'),
+    (agent) => result(agent, 'corrigé\nNAY-COMMIT: fix: xss\nNAY-FILES: a.py'),
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation: roleDelegation, committer: commitOk, roles });
+  assert.equal(report.code, EXIT.ok);
+  assert.deepEqual(calls.map((c) => [c.agent, c.options.role]), [
+    ['sol', 'dev'], ['hydrogen', 'relecteur'], ['terra', 'adversaire'],
+    ['sol', 'dev'], ['hydrogen', 'relecteur'], ['terra', 'adversaire'],
+  ]);
+  assert.equal(calls[3].options.resume, 'sol-s');
+  assert.match(calls[3].prompt, /faille XSS ligne 8/);
+  assert.deepEqual(report.roles, [
+    { role: 'adversaire', agent: 'terra', round: 1, verdict: 'CHANGES' },
+    { role: 'adversaire', agent: 'terra', round: 2, verdict: 'PASS' },
+  ]);
+
+  // Au dernier tour, un CHANGES d'un rôle arrête en DÉFAUTS.
+  const maxOne = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+    (agent) => result(agent, 'toujours cassé\nNAY-VERDICT: CHANGES'),
+  ]);
+  const blocked = await story('brief', { execute: maxOne.execute, git, delegation: roleDelegation,
+    committer: commitOk, roles, maxRounds: 1 });
+  assert.equal(blocked.status, 'DÉFAUTS');
+  assert.equal(blocked.code, EXIT.blocked);
+  assert.equal(blocked.findings, 'toujours cassé');
+});
+
+test('nay story CLI : transmet --skip-baseline et --no-roles', async () => {
+  const captured = { stdout: '', stderr: '', input: Readable.from(['brief']) };
+  captured.output = { write(chunk) { captured.stdout += chunk; } };
+  captured.errorOutput = { write(chunk) { captured.stderr += chunk; } };
+  const code = await runCommand(['story', '-', '--skip-baseline', '--no-roles'], { ...captured,
+    quotasReader: async () => ({}),
+    storyRunner: async (text, options) => {
+      assert.equal(options.skipBaseline, true);
+      assert.equal(options.skipRoles, true);
+      return { dev: 'sol', devSkipped: [], commits: [], reviews: [], roles: [], checks: null, status: 'OK',
+        code: EXIT.ok, detail: null, findings: null };
+    } });
+  assert.equal(code, 0);
 });

@@ -8,7 +8,8 @@ import { chooseAgent } from './delegation.js';
 import { readConfig } from './config.js';
 import { runAgent } from './runAgent.js';
 import { endsWithQuestion } from './lifecycle.js';
-import { checksFailures, checksNotice, formatChecks, loadChecks, runChecks } from './checks.js';
+import { checksFailures, checksNotice, formatChecks, loadChecks, loadChecksConfig, runChecks } from './checks.js';
+import { loadRoles, rolePrompt } from './roles.js';
 
 const run = promisify(execFile);
 const MAX_DIFF_CHARS = 60_000;
@@ -144,12 +145,12 @@ export async function runStory(brief, { storyId = newStoryId(), journal = () => 
   } catch (error) {
     // Sans story_end, `nay wait` verrait la story finir en `stalled` au lieu de `failed`.
     journal({ kind: 'story_end', storyId, feature, status: 'BLOQUÉ', code: EXIT.blocked, cause: 'crash',
-      question: false, detail: error.message, dev: null, reviews: [], commits: [] });
+      question: false, detail: error.message, dev: null, reviews: [], roles: [], commits: [] });
     throw error;
   }
   journal({ kind: 'story_end', storyId, feature, status: report.status, code: report.code,
     question: report.question, detail: report.detail, dev: report.dev, reviews: report.reviews,
-    commits: report.commits, checks: report.checks, checksBy: report.checksBy });
+    roles: report.roles, commits: report.commits, checks: report.checks, checksBy: report.checksBy });
   return { ...report, storyId };
 }
 
@@ -162,8 +163,8 @@ export const checkOps = { load: (cwd) => loadChecks(cwd), run: (checks, cwd) => 
 
 async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2, execute = runAgent,
   isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord, checker = checkOps, dev: forcedDev,
-  storyId } = {}) {
-  const report = { dev: null, devSkipped: [], commits: [], reviews: [], checks: null, checksBy: null,
+  skipBaseline = false, baseline, roles, skipRoles = false, storyId } = {}) {
+  const report = { dev: null, devSkipped: [], commits: [], reviews: [], roles: [], checks: null, checksBy: null,
     status: 'OK', code: EXIT.ok, detail: null, findings: null, question: false };
   const run = (agent, prompt, options) => execute(agent, prompt, { ...options, storyId });
   const isGit = await git.isRepo(cwd);
@@ -171,13 +172,36 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
   const availability = (agent) => !unavailable.has(agent) && isAvailable(agent);
   const choose = (role, author) => chooseAgent(role, { author, isAvailable: availability,
     ...(delegation ? { delegation } : {}) });
+  const chooseForRole = (role, author) => chooseAgent(role, {
+    isAvailable: (agent) => agent !== author && availability(agent),
+    ...(delegation ? { delegation } : {}),
+  });
   const stop = (status, code, detail) => Object.assign(report, { status, code, detail });
+
+  let autoRoles = [];
+  if (!skipRoles) {
+    try {
+      autoRoles = Object.entries(roles ?? loadRoles())
+        .filter(([, role]) => role.usage === 'toujours' && role.mode === 'read');
+    } catch (error) {
+      return stop('BLOQUÉ', EXIT.blocked, `Rôles perso illisibles : ${error.message}`);
+    }
+  }
 
   let checks;
   try {
     checks = await checker.load(cwd);
   } catch (error) {
     return stop('BLOQUÉ', EXIT.blocked, `Contrôles du projet illisibles : ${error.message}`);
+  }
+  // Base saine : inutile de lancer un dev si les contrôles du projet échouent déjà.
+  if (checks && !skipBaseline && (baseline ?? loadChecksConfig().baseline)) {
+    const results = await checker.run(checks, cwd);
+    if (results.some((result) => !result.ok)) {
+      Object.assign(report, { checks: formatChecks(results), checksBy: 'nay', checksFailed: true });
+      report.findings = checksFailures(results);
+      return stop('BASE ROUGE', EXIT.blocked, 'Contrôles déjà en échec avant le travail');
+    }
   }
   // Sans contrôles déclarés, on garde le compte rendu du dev, signalé comme non vérifié.
   const checksPrompt = checks ? checksNotice(checks) : CHECKS_INSTRUCTIONS;
@@ -288,7 +312,20 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
     }
     const verdict = parseVerdict(review.text);
     report.reviews.push({ agent: review.agent, round, verdict });
-    if (verdict === 'PASS') return report;
+    if (verdict === 'PASS') {
+      const roleChange = await runAutoRoles(autoRoles, { brief, target, checksLine, round, devAgent: dev.agent,
+        cwd, feature, chooseForRole, run, unavailable, report });
+      if (!roleChange) return report;
+      if (round >= maxRounds) {
+        report.findings = roleChange.findings;
+        return stop('DÉFAUTS', EXIT.blocked, `Défauts restants après ${maxRounds} tours de revue`);
+      }
+      if (!(await fixRound(`Retours de ${roleChange.label} à corriger (seulement ceux-ci) :\n${roleChange.findings}`))) {
+        report.findings = roleChange.findings;
+        return report;
+      }
+      continue;
+    }
     if (round >= maxRounds) {
       report.findings = withoutMarkers(review.text);
       return stop('DÉFAUTS', EXIT.blocked, `Défauts restants après ${maxRounds} tours de revue`);
@@ -315,8 +352,42 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
   }
 }
 
+// Rôles perso lecture seule « toujours » : même diff que le relecteur, jamais par l'auteur du code.
+// Renvoie { findings, label } au premier CHANGES ; un rôle sans agent disponible est sauté sans bloquer.
+async function runAutoRoles(autoRoles, { brief, target, checksLine, round, devAgent, cwd, feature,
+  chooseForRole, run, unavailable, report }) {
+  for (const [id, role] of autoRoles) {
+    const prompt = `${rolePrompt(role, brief)}\n\nRelis ${target}.${checksLine}${VERDICT_INSTRUCTIONS}`;
+    let result = null;
+    let tried = false;
+    for (;;) {
+      let agent;
+      try {
+        ({ agent } = chooseForRole(id, devAgent));
+      } catch {
+        if (!tried) report.roles.push({ role: id, agent: null, round, verdict: 'sauté' });
+        break;
+      }
+      tried = true;
+      const attempt = await run(agent, prompt, { mode: 'read', cwd, feature, role: id });
+      if (attempt.status === 'ok') {
+        result = attempt;
+        break;
+      }
+      unavailable.add(agent);
+      report.roles.push({ role: id, agent, round, verdict: `sauté (${shortError(attempt)})` });
+    }
+    if (!result) continue;
+    const verdict = parseVerdict(result.text);
+    report.roles.push({ role: id, agent: result.agent, round, verdict });
+    if (verdict === 'CHANGES') return { findings: withoutMarkers(result.text), label: role.label };
+  }
+  return null;
+}
+
 function findingsTitle(report) {
   if (report.question) return 'Question du dev :';
+  if (report.status === 'BASE ROUGE') return 'Contrôles déjà en échec avant le travail :';
   // Une story arrêtée pendant la correction des contrôles n'a pas de constats de relecteur.
   return report.checksFailed ? 'Contrôles en échec :' : 'Constats du relecteur :';
 }
@@ -328,6 +399,8 @@ export function formatStory(report) {
     `Commit : ${report.commits.length ? report.commits.join(' ; ') : 'aucun'}`,
     `Revue : ${report.reviews.length
       ? report.reviews.map(({ agent, round, verdict }) => `${agent} ${verdict} (tour ${round})`).join(' ; ') : 'aucune'}`,
+    ...(report.roles?.length ? [`Rôles : ${report.roles.map(({ role, agent, round, verdict }) =>
+      `${role}${agent ? ` ${agent}` : ''} ${verdict} (tour ${round})`).join(' ; ')}`] : []),
     `Contrôles : ${report.checks ?? 'non rapportés'}${report.checksBy === 'dev' ? ' (déclarés par le dev, non vérifiés)' : ''}`,
     `Statut : ${report.status}${report.detail ? ` — ${report.detail}` : ''}`];
   if (report.storyId) lines.unshift(`Story : ${report.storyId}`);

@@ -51,13 +51,15 @@ test('rôles : identifiants et champs validés, rôles intégrés protégés', (
 
 test('guide : comportement par défaut, règles et questions avec réponses proposées', () => {
   const roles = { adversaire, securite: { ...adversaire, label: 'Sécurité', description: 'audit', usage: 'toujours' },
-    ui: { ...adversaire, label: 'Agent UI', description: 'interface', mode: 'write', usage: 'proposer' } };
+    ui: { ...adversaire, label: 'Agent UI', description: 'interface', mode: 'write', usage: 'proposer' },
+    style: { ...adversaire, label: 'Style', description: 'mise en forme', mode: 'write', usage: 'toujours' } };
   const guide = formatGuide(roles, { adversaire: ['terra', 'haiku'], securite: ['sonnet'] });
   assert.match(guide, /nay story <brief>/);
   assert.match(guide, /\*\*adversaire\*\* — Agent adversaire \(lecture seule, terra → haiku\)/);
-  assert.match(guide, /Toujours : lance-le .*nay role securite <brief> --cwd <projet> --diff HEAD/);
+  assert.match(guide, /Toujours : lancé automatiquement par `nay story` après la relecture ; hors story, lance-le sans demander \(nay role securite <brief> --cwd <projet> --diff HEAD\)/);
   assert.match(guide, /ui\*\* — Agent UI \(écriture, aucun modèle/);
   assert.match(guide, /propose-le en une ligne/);
+  assert.match(guide, /Toujours : lance-le à chaque travail concerné, sans demander \(nay role style <brief> --cwd <projet>\)/);
   assert.match(guide, /## À demander[\s\S]*Quand veux-tu que j’utilise Agent adversaire/);
   assert.match(guide, /Réponses : Toujours · Seulement quand je le demande · Me le proposer après/);
   assert.match(guide, /nay usage adversaire toujours\|sur-demande\|proposer/);
