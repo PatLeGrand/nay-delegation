@@ -11,6 +11,15 @@ export function runProcess(command, args, cwd) {
   });
 }
 
+// Le code peut avoir été tiré à la main (git pull) après le démarrage du service : on compare
+// alors son démarrage à la date du dernier commit. Si l'une des deux est illisible, on redémarre.
+async function startedBeforeHead(run, git, root) {
+  const shown = await run('systemctl', ['--user', 'show', SERVICE, '--timestamp=unix', '-p', 'ActiveEnterTimestamp', '--value'], root);
+  const started = Number(/^@(\d+)/.exec(shown.stdout.trim())?.[1]);
+  const committed = Number(await git('log', '-1', '--format=%ct'));
+  return !Number.isFinite(started) || !Number.isFinite(committed) || started < committed;
+}
+
 // Met à jour le dépôt Nay sur place : main propre → pull --ff-only → check-config (nouveau code)
 // → redémarrage du service nay-ui s'il tourne. Retourne { code, lines }.
 export async function runUpdate({ root, run = runProcess, nodeBin = process.execPath, branch = 'main' }) {
@@ -49,7 +58,7 @@ export async function runUpdate({ root, run = runProcess, nodeBin = process.exec
     const active = await run('systemctl', ['--user', 'is-active', SERVICE], root);
     if (active.stdout.trim() !== 'active') {
       lines.push(`Service ${SERVICE} non actif : rien à redémarrer.`);
-    } else if (before === after) {
+    } else if (before === after && !(await startedBeforeHead(run, git, root))) {
       lines.push(`Service ${SERVICE} actif, inchangé.`);
     } else {
       const restart = await run('systemctl', ['--user', 'restart', SERVICE], root);
@@ -57,7 +66,7 @@ export async function runUpdate({ root, run = runProcess, nodeBin = process.exec
         lines.push(`Échec du redémarrage de ${SERVICE} : ${restart.stderr.trim()}`);
         return { code: 1, lines };
       }
-      lines.push(`Service ${SERVICE} redémarré.`);
+      lines.push(`Service ${SERVICE} redémarré${before === after ? ' (démarré avant le dernier commit)' : ''}.`);
     }
     return { code: 0, lines };
   } catch (error) {

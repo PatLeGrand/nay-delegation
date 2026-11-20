@@ -153,7 +153,9 @@ systemctl --user daemon-reload && systemctl --user enable --now nay-ui
 ```
 
 **Mise à jour** : `nay update` (refuse si le dépôt n'est pas sur `main` ou a des modifications ;
-puis `git pull --ff-only`, `check-config` et redémarrage du service). Le dossier de Nay doit
+puis `git pull --ff-only`, `check-config` et redémarrage du service ; le service est aussi
+redémarré quand `main` était déjà à jour mais qu'il a démarré avant le dernier commit, par
+exemple après un `git pull` fait à la main). Le dossier de Nay doit
 rester sur `main` : pour travailler sur Nay, utiliser un worktree séparé.
 
 **Codex sans dépôt indiqué** : une skill globale `~/.codex/skills/nay/SKILL.md` (commandes de

@@ -5,7 +5,7 @@ import { runCommand } from '../src/command.js';
 
 // Faux exécutant : répond selon la commande, enregistre les appels.
 function fakeRun({ branch = 'main', dirty = '', heads = ['aaa', 'aaa'], log = '', check = { code: 0, stdout: 'Configuration de délégation valide' },
-  active = 'active', restart = { code: 0 }, pull = { code: 0 } } = {}) {
+  active = 'active', restart = { code: 0 }, pull = { code: 0 }, committedAt = '1000', startedAt = '@2000' } = {}) {
   const calls = [];
   let head = 0;
   const run = async (command, args) => {
@@ -17,9 +17,10 @@ function fakeRun({ branch = 'main', dirty = '', heads = ['aaa', 'aaa'], log = ''
       if (sub[0] === 'status') return ok(dirty);
       if (sub[0] === 'rev-parse') return ok(`${heads[Math.min(head++, heads.length - 1)]}\n`);
       if (sub[0] === 'pull') return { stdout: '', stderr: 'diverge', ...pull };
-      if (sub[0] === 'log') return ok(log);
+      if (sub[0] === 'log') return ok(sub.includes('--format=%ct') ? `${committedAt}\n` : log);
     }
     if (command === 'systemctl' && args[1] === 'is-active') return { code: active === 'active' ? 0 : 3, stdout: `${active}\n`, stderr: '' };
+    if (command === 'systemctl' && args[1] === 'show') return ok(`${startedAt}\n`);
     if (command === 'systemctl' && args[1] === 'restart') return { stdout: '', stderr: 'échec', ...restart };
     if (args[1] === 'check-config') return { stderr: '', ...check };
     return ok();
@@ -61,6 +62,16 @@ test('update déjà à jour : pas de redémarrage', async () => {
   assert.equal(result.code, 0);
   assert.equal(result.lines[0], 'Déjà à jour (aaa).');
   assert.ok(!fake.calls.some((call) => call.includes('restart')));
+});
+
+test('update déjà à jour : redémarre un service démarré avant le dernier commit (pull fait à la main)', async () => {
+  for (const startedAt of ['@500', '', 'n/a']) {
+    const fake = fakeRun({ startedAt });
+    const result = await runUpdate({ ...base, run: fake.run });
+    assert.equal(result.code, 0);
+    assert.ok(fake.calls.includes('systemctl --user restart nay-ui'), startedAt);
+    assert.equal(result.lines.at(-1), 'Service nay-ui redémarré (démarré avant le dernier commit).');
+  }
 });
 
 test('update : service inactif ignoré, config invalide et pull impossible en échec', async () => {
