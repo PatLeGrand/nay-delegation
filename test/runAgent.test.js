@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { mkdtemp, readdir, readFile, rm, writeFile, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { runAgent as executeAgent, checkSkipPermissions } from '../src/runAgent.js';
 import * as agyCli from '../src/cli/agy.js';
 import * as codexCli from '../src/cli/codex.js';
@@ -50,6 +50,9 @@ test('Codex sans turn.completed est journalisé comme un échec', async (t) => {
   assert.ok(result.callId);
   const [entry] = await readUsage(join(cwd, '.nay/state/usage.jsonl'));
   assert.equal(entry.callId, result.callId);
+  assert.equal(entry.project, null);
+  assert.equal(entry.branch, null);
+  assert.equal(entry.feature, null);
   assert.equal(entry.sessionId, null);
   assert.equal(entry.resumedFrom, null);
   assert.match(result.error, /aucun événement turn.completed/);
@@ -357,9 +360,15 @@ test('Flux en direct, lignes fragmentées, champs communs et journaux centraux',
     assert.equal(received[1].kind, 'message');
     finish(child, '{"type":"result","result":"ok"}');
   });
+  const git = t.mock.method(childProcess, 'execFile', (binary, args, options, callback) => {
+    assert.equal(binary, 'git');
+    assert.equal(options.cwd, cwd);
+    callback(null, args[0] === 'rev-parse' ? join(cwd, '.git') + '\n' : 'flux-branche\n');
+  });
   const result = await runAgent('sonnet', 'brief', { cwd, journalRoot: root, feature: 'flux', role: 'dev',
     onEvent: (event) => received.push(event) });
   assert.equal(result.status, 'ok');
+  assert.equal(git.mock.callCount(), 2);
   assert.equal(received.at(-1).kind, 'call_end');
   assert.equal(received[1].text.length, 12000);
   for (const event of received) {
@@ -367,13 +376,18 @@ test('Flux en direct, lignes fragmentées, champs communs et journaux centraux',
     assert.equal(event.agent, 'sonnet');
     assert.equal(event.model, result.model);
     assert.equal(event.feature, 'flux');
+    assert.equal(event.project, basename(cwd));
+    assert.equal(event.branch, 'flux-branche');
     assert.equal(event.role, 'dev');
     assert.equal(event.callId, received[0].callId);
     assert.ok(Number.isFinite(Date.parse(event.ts)));
   }
   const log = join(root, '.nay/state/events', `${received[0].ts.slice(0, 10)}.jsonl`);
   assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n').map(JSON.parse), received);
-  assert.equal((await readUsage(join(root, '.nay/state/usage.jsonl'))).length, 1);
+  const entries = await readUsage(join(root, '.nay/state/usage.jsonl'));
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].project, basename(cwd));
+  assert.equal(entries[0].branch, 'flux-branche');
   await assert.rejects(readFile(join(cwd, '.nay/state/usage.jsonl')), { code: 'ENOENT' });
 });
 

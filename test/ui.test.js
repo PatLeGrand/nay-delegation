@@ -2,13 +2,66 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { buildQuery } from '../ui/js/api.js';
 import {
   formatTokens, formatDuration, formatPct, computeSinceIso, cacheRatio, normalizeRole,
 } from '../ui/js/format.js';
 import {
   buildOrreryModel, describeArc, buildDailySpectrum, buildStoryRelays,
-  simulateDelegation, estimateMockBudget,
+  simulateDelegation, estimateMockBudget, projectOptions, filterByProject, featureNames,
 } from '../ui/js/model.js';
+
+test('filtre projet : ordre de l’API, option hors Git et paramètres cumulés', () => {
+  const scratch = { name: null, calls: 1 };
+  const projects = [{ name: 'Z projet', calls: 1 }, scratch, { name: 'Alpha', calls: 2 }];
+  assert.deepEqual(projectOptions(projects), [
+    { value: '', label: 'Tous les projets' },
+    { value: 'Z projet', label: 'Z projet' },
+    { value: 'Alpha', label: 'Alpha' },
+    { value: '-', label: 'Essais hors Git' },
+  ]);
+  assert.deepEqual(projectOptions([{ ...scratch, calls: 0 }]).map(({ value }) => value), ['']);
+  assert.equal(buildQuery({ project: 'Z projet', feature: 'revue' }), '?project=Z+projet&feature=revue');
+  assert.equal(buildQuery({ project: '-', feature: '' }), '?project=-');
+  assert.equal(buildQuery({ project: '', feature: '' }), '');
+});
+
+test('filtre projet : fiches, contrôles et options de fonctionnalité suivent le projet courant', () => {
+  const projects = [
+    { name: 'nay', features: ['catalogue', 'commun'] },
+    { name: 'autre', features: ['commun', 'autre-historique'] },
+    { name: null, features: ['essais'] },
+  ];
+  const features = [{ name: 'fiche', project: 'nay' }, { name: 'autre-fiche', project: 'autre' }];
+  const reports = [
+    { feature: 'contrôles', project: 'nay' },
+    { feature: 'autre-story', project: 'autre' },
+    { feature: 'hors Git', project: null },
+    { feature: 'historique' },
+  ];
+  const usage = { byFeature: [{ key: 'commun' }, { key: 'période' }, { key: null }] };
+  const status = { calls: [{ feature: 'en vol' }, { feature: '' }] };
+  assert.deepEqual(filterByProject(features, ''), features);
+  assert.deepEqual(filterByProject(features, '-'), []);
+  assert.deepEqual(filterByProject(reports, '-'), reports.slice(2));
+  assert.deepEqual(featureNames({ project: 'nay', projects, allFeaturesList: ['déjà vu'],
+    features: filterByProject(features, 'nay'), storyChecks: filterByProject(reports, 'nay'), usage, status }),
+  ['catalogue', 'commun', 'contrôles', 'déjà vu', 'en vol', 'fiche', 'période']);
+  assert.deepEqual(featureNames({ project: 'autre', projects, allFeaturesList: [],
+    features: filterByProject(features, 'autre'), storyChecks: filterByProject(reports, 'autre') }),
+  ['autre-fiche', 'autre-historique', 'autre-story', 'commun']);
+  assert.deepEqual(featureNames({ project: '-', projects, allFeaturesList: [],
+    features: [], storyChecks: filterByProject(reports, '-') }), ['essais', 'historique', 'hors Git']);
+});
+
+test('relais : la branche est disponible pour les appels sans fonctionnalité', () => {
+  const relays = buildStoryRelays({ usage: { recent: [
+    { callId: 'a', feature: 'sujet', branch: 'feature/sujet' },
+    { callId: 'b', feature: '', branch: 'main' },
+  ] } });
+  const branches = Object.fromEntries(relays.flatMap(({ calls }) => calls.map(({ callId, branch }) => [callId, branch])));
+  assert.deepEqual(branches, { a: null, b: 'main' });
+});
 
 test('format : jetons, durées, ratios de cache et périodes UTC', () => {
   assert.equal(formatTokens(0), '0');

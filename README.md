@@ -143,6 +143,19 @@ dossier seul (`read_file(/chemin/dossier)` couvre tout ce qu'il contient).
 Les tests utilisent des processus et des flux simulés ; ils ne lancent aucun
 agent et ne consomment aucun jeton.
 
+## Projets détectés automatiquement
+
+Nay journalise le projet et la branche du dossier de travail. Les worktrees Git liés sont
+regroupés sous le nom du dépôt principal, quel que soit le dossier depuis lequel l'appel part.
+Pour personnaliser ce nom, ajouter `{"name":"Mon projet"}` dans `.nay/project.json` à la racine
+du dépôt principal. Hors Git, les appels sont classés sans projet. Pour les anciennes lignes
+du journal de consommation, Nay déduit le nom du chemin. Les chemins sous les dossiers
+temporaires déclarés dans `config/projects.json` sont classés sans projet.
+
+`nay status --project "Mon projet"` peut se combiner avec `--feature`. Utiliser
+`nay status --project -` pour les appels sans projet. L'API expose aussi la liste des projets et
+les agrégats de consommation par projet. [Documentation de l'API](docs/api.md)
+
 ## Enchaîner dev et revue (`nay story`)
 
 ```bash
@@ -441,6 +454,12 @@ node bin/nay.js ui
 `config/ui.json` définit les paramètres HTTP, les dossiers de la page et des fiches,
 la limite des requêtes et les intervalles SSE. Le serveur suit [le contrat API](docs/api.md).
 
+Le sélecteur de projet en haut de page filtre les appels, la consommation, la télémétrie en
+direct et les stories. Les projets sont proposés par activité la plus récente, avec « Essais hors
+Git » quand le journal contient des appels sans projet. Le choix est mémorisé dans le navigateur.
+Changer de projet réinitialise le filtre de fonctionnalité. La branche s'affiche pour les appels
+sans fonctionnalité quand elle est connue.
+
 ### Concept : Observatoire Orbital
 
 L’interface représente la flotte Nay comme un **Planétarium de vol** : l’orchestrateur occupe le
@@ -459,7 +478,7 @@ clair/sombre, `Échap` pour fermer la boîte noire) :
   résumé et son origine (« vérifiés par Nay » ou « déclarés, non vérifiés »). Une story arrêtée
   au statut `CONTRÔLES` porte la mention « Contrôles en échec ».
 - **Chronographe** (`3`) : frise UTC du jour cliquable, spectre empilé sur 14 jours (entrée neuve,
-  cache relu, sortie), répartitions et autopsie de fiabilité.
+  cache relu, sortie), répartitions dont « Par projet », et autopsie de fiabilité.
 - **Aiguillage** (`4`) : cascades de priorité par rôle réordonnables par glisser-déposer ou au
   clavier (`↑`/`↓`), avec disponibilité temps réel et simulateur d’aiguillage.
 - **Laboratoire** (`5`) : fonctionnalités prospectives clairement badgées **Maquette** (budget et

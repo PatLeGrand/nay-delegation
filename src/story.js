@@ -7,6 +7,7 @@ import { COMMIT_INSTRUCTIONS, commitAndRecord, lastMarker, parseCommitRequest } 
 import { readConfig } from './config.js';
 import { chooseAgent } from './delegation.js';
 import { runAgent } from './runAgent.js';
+import { detectProject } from './project.js';
 import { endsWithQuestion } from './lifecycle.js';
 import { checksFailures, checksNotice, formatChecks, loadChecks, loadChecksConfig, runChecks } from './checks.js';
 import { loadRoles, rolePrompt } from './roles.js';
@@ -183,17 +184,19 @@ function withoutMarkers(text = '') {
 // `journal` est fourni par la CLI pour que les tests n'écrivent pas dans le journal réel.
 export async function runStory(brief, { storyId = newStoryId(), journal = () => {}, ...options } = {}) {
   const { cwd = process.cwd(), feature = null } = options;
-  journal({ kind: 'story_start', storyId, feature, cwd });
+  const { project, branch } = await detectProject(cwd);
+  const metadata = { storyId, feature, project, branch };
+  journal({ kind: 'story_start', ...metadata, cwd });
   let report;
   try {
     report = await storyRounds(brief, { ...options, storyId });
   } catch (error) {
     // Sans story_end, `nay wait` verrait la story finir en `stalled` au lieu de `failed`.
-    journal({ kind: 'story_end', storyId, feature, status: 'BLOQUÉ', code: EXIT.blocked, cause: 'crash',
+    journal({ kind: 'story_end', ...metadata, status: 'BLOQUÉ', code: EXIT.blocked, cause: 'crash',
       question: false, detail: error.message, dev: null, reviews: [], conformity: [], roles: [], commits: [] });
     throw error;
   }
-  journal({ kind: 'story_end', storyId, feature, status: report.status, code: report.code,
+  journal({ kind: 'story_end', ...metadata, status: report.status, code: report.code,
     question: report.question, detail: report.detail, dev: report.dev, reviews: report.reviews,
     conformity: report.conformity, roles: report.roles, commits: report.commits, checks: report.checks,
     checksBy: report.checksBy, tdd: report.tdd, disputes: report.disputes });

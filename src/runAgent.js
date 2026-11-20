@@ -9,6 +9,7 @@ import { writeClaudeQuota } from './quota/claude.js';
 import { getAgent, loadEngineConfig, loadEventConfig, repositoryRoot } from './config.js';
 import { endsWithQuestion, failureCause, loadLifecycleConfig } from './lifecycle.js';
 import { appendUsage, readUsage } from './usageLog.js';
+import { detectProject } from './project.js';
 import { emptyUsage, subtractUsage } from './cli/usage.js';
 import * as codex from './cli/codex.js';
 import * as agy from './cli/agy.js';
@@ -165,7 +166,7 @@ function configuredModel(name) {
   try { return getAgent(name).model; } catch { return null; }
 }
 
-function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom, storyId, onSession }) {
+function callEvents(name, { feature, role, project, branch, mode, onEvent, journalRoot, callId, resumedFrom, storyId, onSession }) {
   let config;
   try { config = loadEventConfig(); } catch (error) {
     process.stderr.write(`Journal d’événements désactivé : ${error.message}\n`);
@@ -174,7 +175,7 @@ function callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, r
     }, flush: async () => {} };
   }
   const sink = createEventSink({ callId, agent: name, model: configuredModel(name),
-    feature: feature ?? null, role: role ?? null, ...(storyId ? { storyId } : {}) },
+    feature: feature ?? null, role: role ?? null, project, branch, ...(storyId ? { storyId } : {}) },
   resolve(journalRoot, config.directory), config, onEvent);
   sink.emit({ kind: 'call_start', mode, resumedFrom });
   let quotaPending = Promise.resolve();
@@ -216,9 +217,10 @@ async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(),
   const started = performance.now();
   const engine = loadEngineConfig();
   const workDir = resolve(cwd);
+  const { project, branch } = await detectProject(workDir);
   const result = { callId, sessionId: null, agent: name, model: null, effort: null, mode, status: 'error',
     text: '', usage: emptyUsage(), durationMs: 0 };
-  const events = callEvents(name, { feature, role, mode, onEvent, journalRoot, callId, resumedFrom, storyId,
+  const events = callEvents(name, { feature, role, project, branch, mode, onEvent, journalRoot, callId, resumedFrom, storyId,
     onSession(id) { if (id) result.sessionId = id; } });
   let call;
   let cumulativeUsage = false;
@@ -282,7 +284,8 @@ async function runAgentOnce(name, prompt, { mode = 'write', cwd = process.cwd(),
     await events.flush();
     // Le journal conserve les métadonnées, sans dupliquer les réponses des agents.
     const { text, shellBlocked, retrying, ...entry } = result;
-    await appendUsage({ ...entry, feature, role, resumedFrom, cwd: workDir }, resolve(journalRoot, usagePath ?? engine.usageLogPath));
+    await appendUsage({ ...entry, feature, role, resumedFrom, cwd: workDir, project, branch },
+      resolve(journalRoot, usagePath ?? engine.usageLogPath));
   }
   return result;
 }

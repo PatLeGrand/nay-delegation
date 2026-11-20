@@ -15,7 +15,10 @@ Contrat entre le serveur (`feature/serveur`, `src/server/`) et la page web (`fea
 
 ### `GET /api/usage`
 
-Consommation lue dans `.nay/state/usage.jsonl`. Paramètres facultatifs : `feature`, `since` (ISO).
+Consommation lue dans `.nay/state/usage.jsonl`. Les filtres facultatifs `feature`, `project` et
+`since` (ISO) se cumulent. `project=-` sélectionne les appels sans projet et `project=` désactive
+le filtre de projet. Le regroupement et le filtre utilisent le `cwd` pour les anciennes lignes
+qui n'ont pas de champ `project`.
 
 ```json
 {
@@ -23,11 +26,28 @@ Consommation lue dans `.nay/state/usage.jsonl`. Paramètres facultatifs : `featu
   "byAgent":   [{ "key": "sol", "calls": 5, "input": 0, "cachedInput": 0, "output": 0, "durationMs": 0 }],
   "byModel":   [{ "key": "gpt-6.1-sol", "calls": 5, "input": 0, "cachedInput": 0, "output": 0, "durationMs": 0 }],
   "byFeature": [{ "key": "quotas", "calls": 4, "input": 0, "cachedInput": 0, "output": 0, "durationMs": 0 }],
+  "byProject": [{ "key": "nay", "calls": 4, "input": 0, "cachedInput": 0, "output": 0, "durationMs": 0 }],
   "byRole":    [{ "key": "relecteur", "calls": 6, "input": 0, "cachedInput": 0, "output": 0, "durationMs": 0 }],
   "recent":    [{ "timestamp": "…", "agent": "sol", "model": "…", "feature": "…", "role": "…", "status": "ok", "usage": { "input": 0, "cachedInput": 0, "output": 0 }, "durationMs": 0 }]
 }
 ```
-Listes triées par `input + output` décroissant. `recent` : les 50 derniers appels, du plus récent au plus ancien.
+Les agrégats par groupe sont triés par `input + output` décroissant. Dans `byProject`, la clé
+`null` représente les appels sans projet. `recent` contient les 50 derniers enregistrements
+sélectionnés, du plus récent au plus ancien.
+
+### `GET /api/projects`
+
+Projets du journal de consommation, triés par dernière activité décroissante. Chaque entrée
+contient le nombre d'appels et les fonctionnalités et branches distinctes observées. La dernière
+activité est au format ISO UTC. Le groupe `name: null` rassemble les appels sans projet et
+contient zéro appel et une activité `null` lorsqu'il est vide.
+
+```json
+[
+  { "name": "nay", "calls": 4, "lastActivity": "2026-11-20T14:00:00.000Z", "features": ["projets"], "branches": ["feature/projets"] },
+  { "name": null, "calls": 0, "lastActivity": null, "features": [], "branches": [] }
+]
+```
 
 ### `GET /api/quota`
 
@@ -42,13 +62,17 @@ Résultat de `readQuotas()` plus la disponibilité de chaque agent :
 
 ### `GET /api/status`
 
-État des appels et alertes, calculés depuis le fichier d'événements du jour (`src/monitor/`). Paramètre facultatif : `feature`.
+État des appels et alertes, calculés depuis le fichier d'événements du jour (`src/monitor/`).
+Les filtres facultatifs `feature` et `project` se cumulent. `project=` désactive le filtre
+de projet. `project=-` sélectionne les appels sans projet, y compris les anciens événements
+qui n'ont pas ce champ.
 
 ```json
 {
   "now": "…",
   "calls": [{
-    "callId": "…", "agent": "sol", "model": "…", "feature": "…", "role": "developpeur", "mode": "write",
+    "callId": "…", "agent": "sol", "model": "…", "feature": "…", "project": "nay",
+    "branch": "feature/projets", "role": "developpeur", "mode": "write",
     "status": "running", "startedAt": "…", "lastEventAt": "…", "endedAt": null,
     "currentTools": [{ "name": "Bash", "kind": "command", "target": "npm test", "startedAt": "…" }],
     "toolCount": 12, "failures": 1, "consecutiveFailures": 0,
@@ -90,11 +114,12 @@ pour injecter une reprise simulée ; `options.callId` identifie le nouvel appel,
 
 ### `GET /api/features`
 
-Fiches de `docs/features/*.md` analysées :
+Fiches de `docs/features/*.md` analysées. Ce sont les fiches du dépôt Nay : chacune porte `project`,
+le projet détecté une fois pour la racine de Nay (voir `src/project.js`).
 
 ```json
 [{
-  "name": "quotas", "title": "quotas", "branch": "feature/quotas",
+  "name": "quotas", "title": "quotas", "branch": "feature/quotas", "project": "nay",
   "task": "…",
   "developer": "…", "reviewer": "…",
   "verdicts": ["À CORRIGER", "APPROUVÉ"],
@@ -166,7 +191,8 @@ réécrit atomiquement, une ligne par agent ; les écritures de configuration pa
 
 ### `GET /api/events/stream`
 
-Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'événements du jour (`event: agent`, `data: <événement JSON>`), en suivant le changement de date et la rotation. Commentaire `: ping` toutes les 15 s. Paramètre facultatif : `feature`.
+Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'événements du jour (`event: agent`, `data: <événement JSON>`), en suivant le changement de date et la rotation. Commentaire `: ping` toutes les 15 s. Filtres facultatifs cumulables : `feature` et `project`
+(`project=-` pour les événements sans projet, y compris les anciens qui n'ont pas ce champ).
 
 ## Ce que la page affiche
 

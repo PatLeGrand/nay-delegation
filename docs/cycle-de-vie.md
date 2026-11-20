@@ -59,8 +59,8 @@ statut et du message d'erreur.
 - `call_end` : champs `cause` (si échec), `question` (si succès sur une question), `retrying`
   (si une reprise automatique suit).
 - Champ commun `storyId` sur les événements des appels lancés par une story.
-- `story_start` : `storyId`, `feature`, `cwd`, `ts`. Sans `callId`.
-- `story_end` : `storyId`, `feature`, `status` (`OK`, `BLOQUÉ`, `DÉFAUTS`, `CONTRÔLES`, `BASE ROUGE`,
+- `story_start` porte `storyId`, `feature`, `project`, `branch`, `cwd` et `ts`. Sans `callId`.
+- `story_end` porte `storyId`, `feature`, `project`, `branch`, `status` (`OK`, `BLOQUÉ`, `DÉFAUTS`, `CONTRÔLES`, `BASE ROUGE`,
   `DÉSACCORD`, `AUCUN AGENT`), `code`, `cause`, `question`, `detail`, `dev`, `reviews`,
   `conformity` (`[{ agent, round, verdict }]`, contrôle de conformité au brief ; `agent` null si
   l'étape est sautée), `roles`, `commits`, `checks` (résumé), `checksBy` (`nay`, `dev` ou null),
@@ -68,6 +68,9 @@ statut et du message d'erreur.
   `disputes` (`[{ round, remark, reason }]`), `ts`. `detail`, les verdicts de `reviews`,
   `conformity` et `roles`, le `detail` de `tdd` et le texte des `disputes` sont masqués comme
   `error` (ils peuvent reprendre un stderr ou le texte d'un agent).
+
+Le projet et la branche sont déduits du dossier de travail au début de la story et repris à sa fin,
+y compris en cas d'échec.
 
 ## `nay wait`
 

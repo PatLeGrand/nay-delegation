@@ -1,5 +1,5 @@
 // Vue « Chronographe » : frise des appels du jour, spectre 14 jours UTC, répartitions et fiabilité.
-import { NO_FEATURE_LABEL } from '../config.js';
+import { NO_FEATURE_LABEL, SCRATCH_PROJECT_LABEL } from '../config.js';
 import { el, svgEl } from '../dom.js';
 import {
   agentColor, agentGlyph, agentLabel, cacheRatio, formatDuration,
@@ -64,7 +64,8 @@ function renderDayChronogram(state, actions) {
               const leftPct = Math.max(0, Math.min(99, ((s - minMs) / spanMs) * 100));
               const widthPct = Math.max(1.2, Math.min(100 - leftPct, ((Math.max(e, s + 1000) - s) / spanMs) * 100));
               const dur = Math.max(0, e - s);
-              return el('div', { class: 'chrono-lane' },
+              const branch = call.feature ? null : call.branch;
+              const lane = el('div', { class: 'chrono-lane' },
                 el('button', {
                   type: 'button',
                   class: `chrono-bar chrono-bar--${call.status ?? 'ok'}`,
@@ -74,12 +75,13 @@ function renderDayChronogram(state, actions) {
                     '--agent-color': agentColor(call.agent),
                   },
                   title: `${agentLabel(call.agent)} · ${roleLabel(call.role)} · ${formatDuration(dur)}`,
-                  'aria-label': `${agentLabel(call.agent)} sur ${feat}, ${formatDuration(dur)}, statut ${call.status}`,
+                  'aria-label': `${agentLabel(call.agent)} sur ${branch || feat}, ${formatDuration(dur)}, statut ${call.status}`,
                   onClick: () => actions.openCall(call.callId),
                 },
                   el('span', { class: 'chrono-bar__text' }, `${agentLabel(call.agent)} · ${formatDuration(dur)}`),
                 ),
               );
+              return branch ? [el('small', { class: 'mono muted' }, branch), lane] : lane;
             }),
           ),
         );
@@ -190,6 +192,7 @@ function renderBreakdowns(state, actions) {
     { key: 'byModel', label: 'Par modèle' },
     { key: 'byFeature', label: 'Par fonctionnalité' },
     { key: 'byRole', label: 'Par rôle' },
+    { key: 'byProject', label: 'Par projet' },
   ];
   const activeDim = state.usageDim || 'byAgent';
   const rows = state.usage?.[activeDim] ?? [];
@@ -218,7 +221,7 @@ function renderBreakdowns(state, actions) {
           const pct = Math.max(2, (total / maxTokens) * 100);
           const label = activeDim === 'byAgent' ? agentLabel(row.key)
             : activeDim === 'byRole' ? roleLabel(row.key)
-              : (row.key ?? NO_FEATURE_LABEL);
+              : (row.key ?? (activeDim === 'byProject' ? SCRATCH_PROJECT_LABEL : NO_FEATURE_LABEL));
           const color = activeDim === 'byAgent' ? agentColor(row.key) : null;
           return el('div', { class: 'breakdown-row' },
             el('div', { class: 'breakdown-row__head' },

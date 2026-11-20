@@ -155,12 +155,13 @@ test('status résume les appels et les alertes d’un fichier d’événements',
   const dir = await mkdtemp(join(tmpdir(), 'nay-status-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const start = Date.parse('2026-11-17T10:00:00.000Z');
-  const base = { v: 1, callId: 'c1', agent: 'sol', model: 'gpt', feature: 'alertes', role: 'developpeur' };
+  const base = { v: 1, callId: 'c1', agent: 'sol', model: 'gpt', feature: 'alertes', project: 'nay',
+    role: 'developpeur' };
   const lines = [
     { ...base, kind: 'call_start', ts: new Date(start).toISOString(), mode: 'write' },
     { ...base, kind: 'tool_start', ts: new Date(start).toISOString(),
       tool: { id: 't1', name: 'Bash', kind: 'command', target: 'npm test' } },
-    { ...base, callId: 'c2', feature: 'autre', kind: 'call_start', ts: new Date(start).toISOString() },
+    { ...base, callId: 'c2', project: null, feature: 'autre', kind: 'call_start', ts: new Date(start).toISOString() },
   ].map((line) => JSON.stringify(line));
   const file = join(dir, '2026-11-17.jsonl');
   await writeFile(file, `${lines.join('\n')}\nligne illisible\n`);
@@ -176,6 +177,27 @@ test('status résume les appels et les alertes d’un fichier d’événements',
   assert.equal(await runCommand(['status', '--file', file, '--feature', 'autre'], { ...filtered, now }), 0);
   assert.doesNotMatch(filtered.stdout, /commande_longue/);
   assert.match(filtered.stdout, /autre/);
+
+  for (const [args, pattern] of [
+    [['--project', 'nay'], /commande_longue/],
+    [['--project', 'nay', '--feature', 'autre'], /^Aucun événement\n$/],
+    [['--project', '-', '--feature', 'autre'], /autre/],
+  ]) {
+    const scoped = streams();
+    assert.equal(await runCommand(['status', '--file', file, ...args], { ...scoped, now }), 0);
+    assert.match(scoped.stdout, pattern);
+  }
+
+  const otherEnd = { ...base, feature: 'autre', kind: 'call_end', status: 'ok', ts: new Date(now()).toISOString() };
+  await writeFile(file, [...lines, JSON.stringify(otherEnd)].join('\n') + '\n');
+  const original = streams();
+  assert.equal(await runCommand(['status', '--file', file, '--feature', 'alertes'], { ...original, now }), 0);
+  assert.match(original.stdout, /alertes · running · command npm test/);
+
+  const alternate = streams();
+  assert.equal(await runCommand(['status', '--file', file, '--feature', 'autre', '--project', 'nay'],
+    { ...alternate, now }), 0);
+  assert.match(alternate.stdout, /autre · ok/);
 });
 
 test('status sur un fichier absent ou vide affiche « Aucun événement »', async (t) => {

@@ -20,9 +20,13 @@ et les alertes / l'interface (`feature/alertes`, `feature/interface`, qui les li
 | `agent` | chaîne | nom de l'agent (`sol`, `hydrogen`…) |
 | `model` | chaîne | modèle résolu |
 | `feature` | chaîne ou null | fonctionnalité concernée |
+| `project` | chaîne ou null | nom déduit du dépôt Git commun |
+| `branch` | chaîne ou null | branche du dossier de travail, nulle en HEAD détachée |
 | `role` | chaîne ou null | rôle (`developpeur`, `relecteur`…) |
 | `kind` | chaîne | type d'événement, voir ci-dessous |
 | `storyId` | chaîne, facultatif | story qui a lancé l'appel (absent hors story) |
+
+Les anciens événements peuvent omettre `project` et `branch`. Hors Git, les deux champs valent `null`.
 
 ## Types (`kind`)
 
@@ -32,7 +36,7 @@ et les alertes / l'interface (`feature/alertes`, `feature/interface`, qui les li
 - `message` : texte de l'agent. Champ `text` (tronqué).
 - `usage` : mesure brute intermédiaire du CLI, par tour ou étape (sans soustraction de l’historique lors d’une reprise). Champ `usage` `{ input, cachedInput, output, thinking, total }`.
 - `call_end` : fin de l'appel. Champs `status` (`ok`, `error`, `timeout`), `usage`, `durationMs`, `sessionId` (identifiant fournisseur, ou null si inconnu), `error` (si échec), `cause` (si échec : `timeout`, `shell_blocked`, `empty`, `quota`, `crash`), `question: true` (succès qui finit sur une question), `retrying: true` (une reprise automatique suit).
-- `story_start` / `story_end` : début et fin d'un `nay story`, **sans `callId`**. Champs `storyId`, `feature`, et pour `story_start` `cwd` ; pour `story_end` `status`, `code`, `question`, `detail`, `dev`, `reviews`, `conformity`, `roles`, `commits`, `checks`, `checksBy`, `tdd`, `disputes`. Voir [cycle-de-vie.md](cycle-de-vie.md).
+- `story_start` / `story_end` marquent le début et la fin d'un `nay story`. Les deux portent `storyId`, `feature`, `project` et `branch`. [Détail des champs](cycle-de-vie.md)
 
 ## Outil (`tool`)
 

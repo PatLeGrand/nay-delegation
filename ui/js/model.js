@@ -2,9 +2,36 @@
 // simulateur d'aiguillage et estimation de budget (testable sous Node).
 import {
   AGENT_META, PROVIDER_ORBITS, HISTOGRAM_DAYS, DAY_MS,
-  MOCK_PRICING_PER_M, MOCK_DAILY_BUDGET_USD, NO_FEATURE_LABEL,
+  MOCK_PRICING_PER_M, MOCK_DAILY_BUDGET_USD, NO_FEATURE_LABEL, SCRATCH_PROJECT_LABEL,
 } from './config.js';
 import { agentColor, agentGlyph, agentLabel, normalizeRole } from './format.js';
+
+export function projectOptions(projects) {
+  const options = [{ value: '', label: 'Tous les projets' }];
+  for (const { name } of projects) {
+    if (name) options.push({ value: name, label: name });
+  }
+  if (projects.some(({ name, calls }) => name === null && calls > 0)) {
+    options.push({ value: '-', label: SCRATCH_PROJECT_LABEL });
+  }
+  return options;
+}
+
+export function filterByProject(items, project) {
+  return project ? items.filter((item) => project === '-' ? item.project == null : item.project === project) : items;
+}
+
+export function featureNames({ project, projects, allFeaturesList, storyChecks, features, usage, status }) {
+  const names = [
+    ...allFeaturesList,
+    ...projects.filter(({ name }) => !project || (name ?? '-') === project).flatMap((entry) => entry.features),
+    ...storyChecks.map((story) => story.feature),
+    ...features.map((entry) => entry.name),
+    ...(usage?.byFeature ?? []).map((row) => row.key),
+    ...(status?.calls ?? []).map((call) => call.feature),
+  ];
+  return [...new Set(names.filter(Boolean))].sort();
+}
 
 /**
  * Construit le modèle complet du Planétarium Orbital (Orrery).
@@ -255,6 +282,7 @@ export function buildStoryRelays({ features = [], storyChecks = [], usage, statu
       callId: raw.callId ?? null,
       agent: raw.agent,
       model: raw.model,
+      branch: raw.feature ? null : raw.branch ?? null,
       role: normalizeRole(raw.role),
       status: raw.status,
       resumedFrom: raw.resumedFrom ?? null,

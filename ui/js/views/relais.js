@@ -84,6 +84,7 @@ function renderRelayCard(story, state, actions) {
               el('strong', null, agentLabel(call.agent)),
               el('span', { class: 'relay-capsule__sub mono' },
                 `${roleLabel(call.role)}${call.durationMs ? ` · ${formatDuration(call.durationMs)}` : ''}`),
+              call.branch ? el('small', { class: 'relay-capsule__sub mono' }, call.branch) : null,
             ),
             el('span', { class: `status-dot status-dot--${call.status ?? 'ok'}`, 'aria-hidden': 'true' }),
           ));
