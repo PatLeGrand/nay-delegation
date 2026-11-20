@@ -10,11 +10,13 @@ import { formatReport } from './monitor/report.js';
 import { resumeCall } from './resume.js';
 import { COMMIT_INSTRUCTIONS, commitAndRecord, parseCommitRequest } from './commit.js';
 import { formatStory, runStory } from './story.js';
+import { formatTask, parsePlan, planWorkspace, runPlan } from './plan.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
 import { loadEventConfig, readConfig, repositoryRoot } from './config.js';
 import { createJournal } from './eventLog.js';
 import { waitCommand } from './wait.js';
+import { diagnoseCommand } from './diagnose.js';
 import { guideCommand, roleCommand, usageCommand } from './roleCommands.js';
 import { loadRoles } from './roles.js';
 import { readLayer, userConfigDir } from './userConfig.js';
@@ -28,9 +30,11 @@ const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
       [--skip-permissions]   (agy en écriture, worktree Git lié uniquement)
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
-  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>]
+  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles] [--no-conformity]
+  nay plan <plan.md> --cwd <projet> [--feature <nom>] [--parallel <n>] [--dev <agent>] [--rounds <n>]
   nay wait <id>... | --feature <nom> [--feature <nom>...] [--since 10m|<ISO>]
       [--until done,failed,needs_input] [--all] [--timeout <min>]
+  nay diagnose <storyId|callId> [--explain]   (chronologie et cause d'un échec ; --explain : avis d'un explorateur)
   nay role <rôle> <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--diff <révision>] [--commit]
   nay guide   (consignes de l'orchestrateur : rôles perso, règles, questions à poser)
   nay usage <rôle> toujours|sur-demande|proposer|demander
@@ -108,12 +112,20 @@ function storyJournal() {
   }
 }
 
+function validateDev(dev) {
+  if (dev !== undefined && !Object.hasOwn(readConfig('agents'), dev)) throw new Error(`--dev : agent inconnu : ${dev}`);
+}
+
 // Boucle complète dev → commit → revue → correction, rendue en quelques lignes.
 async function storyCommand(args, { input, output, execute, quotasReader, storyRunner }) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
     cwd: { type: 'string' }, feature: { type: 'string' }, rounds: { type: 'string', default: '2' },
-    id: { type: 'string' },
+    id: { type: 'string' }, dev: { type: 'string' },
+    'skip-baseline': { type: 'boolean', default: false },
+    'no-roles': { type: 'boolean', default: false },
+    'no-conformity': { type: 'boolean', default: false },
   } });
+  validateDev(values.dev);
   if (values.id !== undefined && !JOB_ID.test(values.id)) throw new Error('--id : 1 à 64 caractères parmi A-Z a-z 0-9 _ . -');
   if (positionals.length !== 1) throw new Error(USAGE);
   const rounds = Number(values.rounds);
@@ -124,10 +136,45 @@ async function storyCommand(args, { input, output, execute, quotasReader, storyR
   const journal = storyJournal();
   const report = await storyRunner(text, { cwd, feature: values.feature ?? basename(cwd), maxRounds: rounds,
     execute, isAvailable: await quotaAvailability(quotasReader), journal: journal.emit,
-    ...(values.id ? { storyId: values.id } : {}) });
+    ...(values.id ? { storyId: values.id } : {}), ...(values.dev ? { dev: values.dev } : {}),
+    ...(values['skip-baseline'] ? { skipBaseline: true } : {}),
+    ...(values['no-roles'] ? { skipRoles: true } : {}),
+    ...(values['no-conformity'] ? { skipConformity: true } : {}) });
   await journal.flush();
   output.write(formatStory(report));
   return report.code;
+}
+
+function positiveInteger(value, option) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 1) throw new Error(`${option} doit être un entier ≥ 1`);
+  return number;
+}
+
+async function planCommand(args, { output, execute, quotasReader, storyRunner }) {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
+    cwd: { type: 'string' }, feature: { type: 'string' }, rounds: { type: 'string' },
+    dev: { type: 'string' }, parallel: { type: 'string' },
+  } });
+  if (positionals.length !== 1 || !values.cwd) throw new Error(USAGE);
+  validateDev(values.dev);
+  const maxRounds = values.rounds === undefined ? undefined : positiveInteger(values.rounds, '--rounds');
+  const parallel = positiveInteger(values.parallel ?? readConfig('plan').parallel, '--parallel');
+  const tasks = parsePlan(await readFile(positionals[0], 'utf8'));
+  const cwd = resolve(values.cwd);
+  const workspace = await planWorkspace(cwd, parallel);
+  const isAvailable = await quotaAvailability(quotasReader);
+  const journal = storyJournal();
+  try {
+    const reports = await runPlan(tasks, { parallel, workspace, storyRunner, storyOptions: {
+      execute, dev: values.dev, maxRounds, feature: values.feature ?? basename(cwd), isAvailable,
+      journal: journal.emit,
+    } });
+    for (const report of reports) output.write(`${formatTask(report)}\n`);
+    return reports.every(report => report.code === 0) ? 0 : 1;
+  } finally {
+    await journal.flush();
+  }
 }
 
 async function modelsCommand(args, output, catalog) {
@@ -180,7 +227,7 @@ async function readStdin(stream) {
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
   committer = commitAndRecord, storyRunner = runStory, updater = runUpdate,
-  catalog = createCatalog({ root: repositoryRoot() }), waitOptions = {} } = {}) {
+  catalog = createCatalog({ root: repositoryRoot() }), waitOptions = {}, diagnoseOptions = {} } = {}) {
   try {
     if (args[0] === 'update') {
       if (args.length !== 1) throw new Error(USAGE);
@@ -199,6 +246,7 @@ export async function runCommand(args, { input = process.stdin, output = process
     }
     if (args[0] === 'resume') return await resumeCommand(args.slice(1), { input, output, errorOutput, resumer, committer });
     if (args[0] === 'status') return await statusCommand(args.slice(1), output, now);
+    if (args[0] === 'plan') return await planCommand(args.slice(1), { output, execute, quotasReader, storyRunner });
     if (args[0] === 'story') return await storyCommand(args.slice(1), { input, output, execute, quotasReader, storyRunner });
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
@@ -210,6 +258,10 @@ export async function runCommand(args, { input = process.stdin, output = process
     }
     if (args[0] === 'models') return await modelsCommand(args.slice(1), output, catalog);
     if (args[0] === 'wait') return await waitCommand(args.slice(1), { output, now, ...waitOptions });
+    if (args[0] === 'diagnose') {
+      return await diagnoseCommand(args.slice(1), { output, now, execute,
+        availability: () => quotaAvailability(quotasReader), ...diagnoseOptions });
+    }
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
       'read-only': { type: 'boolean', default: false },
       feature: { type: 'string' }, role: { type: 'string' }, cwd: { type: 'string' },

@@ -1,0 +1,7 @@
+{
+  "daysBack": 7,
+  "maxExplainChars": 8000,
+  "errorMaxChars": 300,
+  "messageMaxChars": 400,
+  "explainFeature": "diagnose"
+}

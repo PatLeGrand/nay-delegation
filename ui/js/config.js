@@ -23,6 +23,7 @@ export const API = {
   quota: '/api/quota',
   status: '/api/status',
   features: '/api/features',
+  storyChecks: '/api/story-checks',
   delegation: '/api/delegation',
   delegationPerso: '/api/delegation/perso',
   roles: '/api/roles',
@@ -90,6 +91,7 @@ export const ROLE_LABELS = {
   developpeur: 'Développeur',
   tachesFaciles: 'Tâches faciles',
   surAppel: 'Sur appel',
+  conformite: 'Conformité au brief',
   relecteur: 'Relecteur',
 };
 
@@ -99,7 +101,7 @@ export const AGENT_DEFAULT_TIMEOUT_MIN = 30;
 export const AGENT_MAX_TIMEOUT_MIN = 600;
 export const MODEL_VENDOR_PREFIXES = ['gpt', 'gemini', 'claude'];
 
-export const DELEGATION_SIMPLE_ROLES = ['explorateur', 'developpeur', 'tachesFaciles', 'surAppel'];
+export const DELEGATION_SIMPLE_ROLES = ['explorateur', 'developpeur', 'tachesFaciles', 'surAppel', 'conformite'];
 
 export const FEATURE_STATE_LABELS = {
   en_cours: 'En cours',

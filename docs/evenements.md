@@ -32,7 +32,7 @@ et les alertes / l'interface (`feature/alertes`, `feature/interface`, qui les li
 - `message` : texte de l'agent. Champ `text` (tronqué).
 - `usage` : mesure brute intermédiaire du CLI, par tour ou étape (sans soustraction de l’historique lors d’une reprise). Champ `usage` `{ input, cachedInput, output, thinking, total }`.
 - `call_end` : fin de l'appel. Champs `status` (`ok`, `error`, `timeout`), `usage`, `durationMs`, `sessionId` (identifiant fournisseur, ou null si inconnu), `error` (si échec), `cause` (si échec : `timeout`, `shell_blocked`, `empty`, `quota`, `crash`), `question: true` (succès qui finit sur une question), `retrying: true` (une reprise automatique suit).
-- `story_start` / `story_end` : début et fin d'un `nay story`, **sans `callId`**. Champs `storyId`, `feature`, et pour `story_start` `cwd` ; pour `story_end` `status`, `code`, `question`, `detail`, `dev`, `reviews`, `commits`. Voir [cycle-de-vie.md](cycle-de-vie.md).
+- `story_start` / `story_end` : début et fin d'un `nay story`, **sans `callId`**. Champs `storyId`, `feature`, et pour `story_start` `cwd` ; pour `story_end` `status`, `code`, `question`, `detail`, `dev`, `reviews`, `conformity`, `roles`, `commits`, `checks`, `checksBy`, `tdd`, `disputes`. Voir [cycle-de-vie.md](cycle-de-vie.md).
 
 ## Outil (`tool`)
 

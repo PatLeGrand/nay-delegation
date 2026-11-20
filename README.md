@@ -23,7 +23,8 @@ Effort moyen pour tous, sauf Gemini 3.8 Flash (High). Un modèle ne relit jamais
 L’ordre des agents pour chaque rôle est défini dans `config/delegation.json`.
 La relecture utilise `relecteur.selonAuteur` si une liste existe pour l’auteur,
 sinon `relecteur.parDefaut`, en excluant toujours l’auteur. Les rôles sont
-`explorateur`, `developpeur`, `tachesFaciles`, `surAppel` et `relecteur`.
+`explorateur`, `developpeur`, `tachesFaciles`, `surAppel`, `conformite` (contrôle de conformité au
+brief dans `nay story`) et `relecteur`.
 
 ```bash
 node bin/nay.js check-config
@@ -73,7 +74,7 @@ facultatives pour l'agent, un accès (lecture seule ou écriture), un ordre de m
 
 | Règle | L'orchestrateur… |
 |---|---|
-| `toujours` | le lance à chaque travail concerné, sans demander |
+| `toujours` | en lecture seule : lancé automatiquement par `nay story` après la relecture (et par `nay role` hors story) ; en écriture : lancé à chaque travail concerné, sans demander |
 | `sur-demande` | le lance seulement quand l'utilisateur le demande |
 | `proposer` | le propose en une ligne après le travail concerné |
 | aucune | pose la question avec ces trois réponses, puis enregistre le choix |
@@ -95,6 +96,9 @@ Les rôles intégrés (`explorateur`, `developpeur`, `relecteur`…) gardent leu
 ```bash
 npm test
 ```
+
+La CI GitHub (`.github/workflows/tests.yml`) lance les mêmes tests sous Node 22 et 24 à chaque
+push sur `main` et à chaque pull request.
 
 ## Appeler un agent
 
@@ -142,20 +146,69 @@ agent et ne consomment aucun jeton.
 ## Enchaîner dev et revue (`nay story`)
 
 ```bash
-node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>]
+node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles] [--no-conformity]
 ```
 
 Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier :
 
-1. Choisit un `developpeur` selon les quotas et lui donne le brief. Si l'agent échoue
+1. Si `.nay/checks.json` existe (et `baseline` vaut `true` dans `config/checks.json`), vérifie d'abord
+   que la base est saine avant d'appeler le dev ; en cas d'échec, la story s'arrête en `BASE ROUGE`
+   (code 1, sans appel d'agent). `--skip-baseline` passe outre (ex. story qui répare ces tests).
+2. Choisit un `developpeur` selon les quotas (ou celui imposé par `--dev`, sans bascule) et lui donne le brief. Si l'agent échoue
    **sans avoir modifié de fichier** (lancement, quota, délai, réponse vide), Nay passe au
    suivant ; s'il a déjà modifié des fichiers, Nay s'arrête.
-2. Dans un dépôt git, committe les fichiers annoncés par le dev (voir `--commit`).
+3. Dans un dépôt git, committe les fichiers annoncés par le dev (voir `--commit`).
    Hors dépôt git, pas de commit : le relecteur lit les fichiers modifiés.
-3. Choisit un `relecteur` qui n'est pas l'auteur, en lecture seule ; il finit par
-   `NAY-VERDICT: PASS` ou `CHANGES`. Un relecteur en échec cède la place au suivant.
-4. Si `CHANGES` : reprend la session du dev avec les constats, recommite, nouvelle revue,
-   jusqu'à `--rounds` tours (2 par défaut).
+4. **Conformité au brief** (premier temps de la relecture) : un modèle du rôle `conformite`, hors
+   auteur et en lecture seule, répond seulement à « le changement fait-il ce que demande le brief,
+   ni plus ni moins ? » (`NAY-VERDICT: PASS` ou `CHANGES`). `CHANGES` renvoie au dev comme une
+   relecture (un tour), sans appeler le relecteur qualité. Rôle absent de la délégation ou aucun
+   modèle disponible : étape sautée et notée, sans bloquer. `--no-conformity` la retire.
+5. **Qualité du code** (second temps) : choisit un `relecteur` qui n'est pas l'auteur, en lecture
+   seule ; il finit par `NAY-VERDICT: PASS` ou `CHANGES`. Un relecteur en échec cède la place au suivant.
+6. Après un `PASS`, lance chaque rôle perso lecture seule réglé sur `toujours` (hors auteur du code ;
+   un rôle sans modèle disponible est sauté sans bloquer ; les rôles en écriture ne sont jamais
+   lancés par la story ; `--no-roles` désactive cette étape).
+7. Si `CHANGES` (conformité, relecteur ou rôle perso) : reprend la session du dev avec les constats,
+   recommite, nouvelle relecture complète, jusqu'à `--rounds` tours (2 par défaut).
+
+### Contestation par le dev (`NAY-DISPUTE`)
+
+Dans la consigne de correction d'une relecture (conformité, qualité, rôle perso ; pas pour des
+contrôles en échec), le dev peut refuser une remarque qu'il juge fausse au lieu de la corriger :
+
+```text
+NAY-DISPUTE: <remarque contestée> — <raison>
+```
+
+- Contestations **sans aucun changement** : la story s'arrête en `DÉSACCORD` (code 1, cause
+  `dispute`) et affiche les remarques contestées et leurs raisons sous « Désaccords à trancher : » :
+  c'est à l'orchestrateur de décider.
+- Contestations **avec des changements** : la boucle continue ; le relecteur suivant reçoit
+  « Le dev conteste : … ; tranche » dans son prompt. La sortie ajoute une ligne `Contestations :`.
+
+### TDD vérifié
+
+Quand le dev a committé et que le commit ajoute ou modifie des fichiers de test (motifs
+`testPatterns` de `config/checks.json`), Nay vérifie que ces tests **échouent sans le changement** :
+il crée un worktree git détaché sur le commit parent sous `.nay/worktrees` (`tddWorktreesDir`), y
+copie les nouveaux tests du commit, lance le contrôle du projet marqué `"tdd": true`, puis supprime
+le worktree (même en cas d'erreur). Sans contrôle marqué `tdd`, l'étape est sautée. Elle a lieu
+après les contrôles réussis, avant la conformité.
+
+```json
+{ "checks": [ { "name": "tests", "command": "pytest -q $NAY_TEST_FILES", "tdd": true } ] }
+```
+
+- La commande reçoit `NAY_TEST_FILES` (nouveaux tests, séparés par des espaces, relatifs au dossier
+  de la story) ; elle peut l'ignorer et lancer toute la suite.
+- Tests rouges sur le parent : `TDD : tests rouges avant, verts après`. Tests déjà verts : non
+  bloquant, mais signalé au relecteur qualité (« les nouveaux tests passent sans le changement :
+  ils ne prouvent peut-être rien ») et affiché `TDD : non prouvé`. Erreur (worktree impossible…) :
+  `TDD : non vérifié (…)`, sans bloquer.
+- Le worktree ne contient que les fichiers suivis : les dépendances non versionnées
+  (`node_modules`, environnement virtuel) n'y sont pas. Ajouter `.nay/worktrees/` au `.gitignore`
+  du projet.
 
 ### Contrôles lancés par Nay
 
@@ -178,7 +231,7 @@ chaque travail du dev, avant la relecture, au lieu de croire le résultat annonc
 - Sans ce fichier, Nay demande au dev la ligne `NAY-CHECKS:` comme avant, et l'affiche
   « déclarés par le dev, non vérifiés ». Un fichier invalide arrête la story avant tout appel.
 
-Délai par défaut, taille de la sortie gardée et variables d'environnement (`CI=1`) :
+Délai par défaut, vérification initiale (`baseline`, `true` par défaut), taille de la sortie gardée et variables d'environnement (`CI=1`) :
 `config/checks.json`. Ces commandes sont exécutées telles quelles : ne lancer `nay story` que sur
 des projets dont on connaît le `.nay/checks.json`.
 
@@ -188,6 +241,8 @@ Sortie courte, conçue pour l'orchestrateur :
 Story : 3f2a9c1d
 Dev : sonnet (sauté : sol — quota épuisé)
 Commit : 3f2a1c9 feat(providers): …
+TDD : tests rouges avant, verts après (tour 1)
+Conformité : haiku PASS (tour 1)
 Revue : hydrogen PASS (tour 1)
 Contrôles : ruff ok · mypy ok · pytest 42 passés
 Statut : OK
@@ -200,10 +255,45 @@ agy en lecture seule (`--mode plan`) n'exécute pas les commandes shell : Nay aj
 une consigne « sans shell », et si la session s'arrête quand même sur une commande, l'erreur
 le dit (« Shell bloqué en mode plan ») et Nay reprend une fois la session sans shell.
 
-Code de sortie : `0` revue PASS, `1` bloqué ou défauts restants (constats du relecteur
-affichés), `2` aucun agent disponible. `--feature` vaut par défaut le nom du dossier.
+Code de sortie : `0` revue PASS, `1` bloqué, défauts restants (constats du relecteur
+affichés) ou désaccord à trancher, `2` aucun agent disponible. `--feature` vaut par défaut le nom du dossier.
 Si le dev s'arrête sur une question sans rien modifier, la story s'arrête (`BLOQUÉ`) et
 affiche la question.
+
+## Enchaîner plusieurs stories (`nay plan`)
+
+```bash
+nay plan livraison.md --cwd ./projet --feature livraison --parallel 2 --dev sol --rounds 3
+```
+
+Chaque titre de niveau 2 ouvre une tâche. La ligne facultative `Après`, placée juste sous le titre,
+liste les identifiants des tâches qui doivent réussir avant son lancement.
+
+```markdown
+## api : Décrire les routes
+Documenter les routes dans docs/api.md.
+
+## interface : Vérifier la navigation
+Vérifier les liens du menu principal.
+
+## bilan : Préparer la livraison
+Après : api, interface
+Rédiger les notes de livraison.
+```
+
+Nay valide le plan entier avant tout appel. Les identifiants doivent être uniques et les dépendances
+connues et sans cycle. Un échec laisse ses descendants « non lancée » et les tâches indépendantes
+continuent. Chaque story lancée porte son propre identifiant et la feature commune pour le suivi
+avec `nay wait --feature livraison`. Par défaut, la feature prend le nom du dossier projet.
+
+Par défaut, les stories se succèdent dans le dossier du projet (`parallel` vaut 1 dans
+`config/plan.json`). Avec `--parallel` supérieur à 1, Nay exige un dépôt Git avec un premier commit.
+Chaque tâche lancée reçoit une branche et un worktree sous `.nay/worktrees/`. Avec une seule
+dépendance, la branche part du dernier commit de cette dépendance. Avec zéro ou plusieurs dépendances,
+elle part du HEAD initial du projet. Utiliser le mode série pour une tâche qui doit retrouver ensemble
+les modifications de plusieurs prédécesseurs. Les worktrees sont conservés et la fusion des branches est
+manuelle. Le bilan affiche une ligne par tâche dans l’ordre du fichier, avec statut, storyId, dev,
+verdict et branche éventuelle. Le code de sortie vaut 0 si toutes les tâches réussissent, 1 sinon.
 
 ## Attendre un appel ou une story (`nay wait`)
 
@@ -224,13 +314,47 @@ appel 1d917a8b-… · needs_input · haiku · feature quotas · 3 s
 
 États déduits du journal d'événements : `accepted`, `working`, `stalled`, `needs_input`
 (l'agent finit sur une question), `done`, `failed` avec une cause (`quota`, `timeout`,
-`shell_blocked`, `empty`, `crash` ; pour une story `no_agent`, `blocked`, `defects`).
+`shell_blocked`, `empty`, `crash` ; pour une story `no_agent`, `blocked`, `defects`, `checks`, `red_base`).
 `--feature` suit les travaux de la fonctionnalité en cours au lancement ou qui commencent
 ensuite : on peut attendre une story lancée en arrière-plan sans connaître son identifiant.
 Un travail déjà terminé au lancement n'est suivi qu'avec `--since` (commencé depuis cette
 durée ou date) ; `--feature` se répète pour attendre plusieurs lots en une commande.
 Codes de sortie : `0` état atteint, `1` erreur ou identifiant inconnu, `2` délai dépassé.
 Contrat complet : [docs/cycle-de-vie.md](docs/cycle-de-vie.md) ; réglages dans `config/lifecycle.json`.
+
+## Comprendre un échec (`nay diagnose`)
+
+```bash
+node bin/nay.js diagnose <storyId|callId>             # chronologie et diagnostic, sans IA
+node bin/nay.js diagnose <storyId|callId> --explain   # + explication par un explorateur
+```
+
+Relit le journal d'événements et affiche la chronologie compacte du travail (début et fin de la
+story, chaque appel avec agent, rôle, mode, durée, statut, cause, reprises, erreur masquée ;
+verdicts, contrôles et commits), puis un diagnostic mécanique : où ça s'est arrêté et pourquoi
+(cause, agent sauté pour quota, question finale du dev, absence de fin…).
+
+```text
+Story s1 · feature f · état failed (defects)
+  2026-11-19 10:00:00 début
+  10:00:01 appel d1 · sol · dev · write · 2 s · error (quota) · outils 0
+      erreur : You have hit your usage limit
+  10:00:04 appel d2 · sonnet · dev · write · 56 s · ok · outils 12
+  10:01:01 appel r1 · hydrogen · relecteur · read · 9 s · ok · outils 3
+  10:01:11 fin · DÉFAUTS (defects) · code 1 · 1 min
+      dev : sonnet · revues : hydrogen CHANGES (tour 1)
+      contrôles : tests ok (nay) · commits : abc1234 Ajout
+
+Diagnostic :
+- Arrêt : DÉFAUTS (defects) — Défauts restants après 1 tours de revue.
+- Sauté : sol (dev, quota) — You have hit your usage limit
+```
+
+`--explain` envoie ce rapport (jamais les prompts ni les fichiers) à un agent du rôle
+`explorateur`, choisi selon les quotas réels comme `nay choose`, en lecture seule, et affiche
+son explication et l'action conseillée sous la chronologie. Identifiant absent du journal :
+code `1`. Réglages dans `config/diagnose.json` (jours de journal parcourus, taille maximale du
+rapport envoyé, longueur des erreurs et messages cités).
 
 ## Reprendre une session
 
@@ -331,7 +455,9 @@ clair/sombre, `Échap` pour fermer la boîte noire) :
 - **Orbite** (`1`) : planétarium interactif (cliquer un astre ouvre son dossier et filtre la
   télémétrie), ruban d’alertes, bande télémétrique SSE en direct, vols en cours et réservoirs de quotas.
 - **Relais** (`2`) : trajectoires horizontales des stories (`dev → revue → reprise → fusionnée`),
-  verdicts et fiches complètes, avec sas de décision en tête.
+  verdicts et fiches complètes, avec sas de décision en tête. La ligne « Contrôles » affiche le
+  résumé et son origine (« vérifiés par Nay » ou « déclarés, non vérifiés »). Une story arrêtée
+  au statut `CONTRÔLES` porte la mention « Contrôles en échec ».
 - **Chronographe** (`3`) : frise UTC du jour cliquable, spectre empilé sur 14 jours (entrée neuve,
   cache relu, sortie), répartitions et autopsie de fiabilité.
 - **Aiguillage** (`4`) : cascades de priorité par rôle réordonnables par glisser-déposer ou au

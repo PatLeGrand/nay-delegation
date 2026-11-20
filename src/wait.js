@@ -17,6 +17,15 @@ const READ_CHUNK = 1 << 20;
 const EVENTS_FILE = /^(\d{4}-\d{2}-\d{2})\..*jsonl$/;
 const CURRENT_FILE = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
 
+// Fichiers du journal depuis le jour `since` (AAAA-MM-JJ). Archives d'un jour avant son fichier
+// courant : l'ordre d'écriture est à peu près respecté.
+export function journalFiles(names, since) {
+  const order = (name) => [EVENTS_FILE.exec(name)[1], CURRENT_FILE.test(name) ? 1 : 0, name];
+  return names.filter((name) => EVENTS_FILE.exec(name)?.[1] >= since)
+    .map(order).sort((a, b) => a[0].localeCompare(b[0]) || a[1] - b[1] || a[2].localeCompare(b[2]))
+    .map(([, , name]) => name);
+}
+
 // Lecture incrémentale du journal : chaque fichier est suivi par inode, si bien qu'une rotation
 // (renommage du fichier du jour en archive) ne fait ni relire ni perdre de lignes.
 export function createEventTail(directory, { since }) {
@@ -62,12 +71,7 @@ export function createEventTail(directory, { since }) {
         if (error.code === 'ENOENT') return jobs;
         throw error;
       }
-      // Archives d'un jour avant son fichier courant : l'ordre d'écriture est à peu près respecté.
-      const order = (name) => [EVENTS_FILE.exec(name)[1], CURRENT_FILE.test(name) ? 1 : 0, name];
-      const selected = names.filter((name) => EVENTS_FILE.exec(name)?.[1] >= since)
-        .map(order).sort((a, b) => a[0].localeCompare(b[0]) || a[1] - b[1] || a[2].localeCompare(b[2]))
-        .map(([, , name]) => name);
-      for (const name of selected) await readFile(join(directory, name));
+      for (const name of journalFiles(names, since)) await readFile(join(directory, name));
       return jobs;
     },
   };
