@@ -8,7 +8,7 @@ import { loadMonitorConfig } from './monitor/config.js';
 import { reduceEvents, latestEventsFile } from './monitor/readEvents.js';
 import { formatReport } from './monitor/report.js';
 import { resumeCall } from './resume.js';
-import { COMMIT_INSTRUCTIONS, commitRequest, parseCommitRequest } from './commit.js';
+import { COMMIT_INSTRUCTIONS, commitAndRecord, parseCommitRequest } from './commit.js';
 import { formatStory, runStory } from './story.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
@@ -145,7 +145,7 @@ async function readStdin(stream) {
 
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
-  committer = commitRequest, storyRunner = runStory, updater = runUpdate,
+  committer = commitAndRecord, storyRunner = runStory, updater = runUpdate,
   catalog = createCatalog({ root: repositoryRoot() }) } = {}) {
   try {
     if (args[0] === 'update') {
@@ -188,7 +188,8 @@ export async function runCommand(args, { input = process.stdin, output = process
       cwd: values.cwd, feature: values.feature, role: values.role,
       ...(values.effort ? { effort: values.effort } : {}),
       ...(values['skip-permissions'] ? { skipPermissions: true } : {}) });
-    return await finish(result, { commit: values.commit, cwd: values.cwd, output, errorOutput, committer });
+    return await finish(result, { commit: values.commit, cwd: values.cwd, output, errorOutput, committer,
+      meta: { feature: values.feature ?? null, role: values.role ?? null } });
   } catch (error) {
     errorOutput.write(`${error.message}\n`);
     return 1;
@@ -196,7 +197,7 @@ export async function runCommand(args, { input = process.stdin, output = process
 }
 
 // Après un appel réussi avec --commit, Nay committe hors sandbox les fichiers annoncés par l'agent.
-async function finish(result, { commit, cwd, output, errorOutput, committer }) {
+async function finish(result, { commit, cwd, output, errorOutput, committer, meta = {} }) {
   printResult(result, output);
   if (result.status !== 'ok') {
     errorOutput.write(`${result.error ?? result.status}\n`);
@@ -209,7 +210,9 @@ async function finish(result, { commit, cwd, output, errorOutput, committer }) {
     return 0;
   }
   try {
-    output.write(`Commit : ${await committer(request, { cwd: cwd ?? process.cwd() })}\n`);
+    const call = { callId: result.callId, agent: result.agent, model: result.model,
+      feature: meta.feature ?? null, role: meta.role ?? null };
+    output.write(`Commit : ${await committer(request, { cwd: cwd ?? process.cwd(), call })}\n`);
     return 0;
   } catch (error) {
     errorOutput.write(`Commit : échec — ${error.stderr?.trim() || error.message}\n`);
