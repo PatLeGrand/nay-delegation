@@ -3,7 +3,8 @@ import { readConfig } from './config.js';
 
 export const STATES = ['accepted', 'working', 'stalled', 'needs_input', 'done', 'failed'];
 export const TERMINAL = ['needs_input', 'done', 'failed'];
-const STORY_CAUSES = { 'AUCUN AGENT': 'no_agent', 'BLOQUÉ': 'blocked', 'DÉFAUTS': 'defects' };
+const STORY_CAUSES = { 'AUCUN AGENT': 'no_agent', 'BLOQUÉ': 'blocked', 'DÉFAUTS': 'defects',
+  'CONTRÔLES': 'checks' };
 const ACTIVE_KINDS = ['tool_start', 'tool_end', 'message'];
 
 export function loadLifecycleConfig() {
