@@ -261,3 +261,17 @@ test('models : catalogue par CLI, agents utilisateurs ou « nouveau », --refres
   const down = { providers: { codex: { status: 'error', reason: 'x', models: [] } } };
   assert.equal(await runCommand(['models'], { ...streams(), catalog: { get: async () => down } }), 1);
 });
+
+test('wait est branché sur la CLI et story refuse un --id invalide', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'nay-bin-wait-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ts = new Date().toISOString();
+  await writeFile(join(dir, `${ts.slice(0, 10)}.jsonl`), `${JSON.stringify({ v: 1, ts, callId: 'x', agent: 'sol', kind: 'call_end', status: 'ok' })}\n`);
+  const captured = streams();
+  assert.equal(await runCommand(['wait', 'x'], { ...captured, waitOptions: { directory: dir } }), 0);
+  assert.match(captured.stdout, /^appel x · done · sol/);
+  const story = streams('brief');
+  assert.equal(await runCommand(['story', '-', '--id', 'a b'], { ...story,
+    storyRunner: () => assert.fail('story interdite') }), 1);
+  assert.match(story.stderr, /--id/);
+});
