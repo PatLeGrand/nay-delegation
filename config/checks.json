@@ -1,0 +1,6 @@
+{
+  "projectFile": ".nay/checks.json",
+  "defaultTimeoutSec": 600,
+  "maxOutputChars": 4000,
+  "env": { "CI": "1" }
+}

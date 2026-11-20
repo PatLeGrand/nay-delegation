@@ -36,6 +36,22 @@ function scripted(steps) {
 
 const commitOk = async (request) => `abc${request.files.length} ${request.message}`;
 
+// Par défaut, aucun contrôle de projet : sinon les tests liraient le .nay/checks.json du dépôt Nay.
+const noChecks = { load: async () => null, run: async () => assert.fail('contrôles non déclarés') };
+const story = (brief, options = {}) => runStory(brief, { checker: noChecks, ...options });
+
+// Faux contrôles : chaque lancement consomme le résultat suivant de la liste.
+function fakeChecks(outcomes) {
+  const runs = [];
+  const checks = [{ name: 'tests', command: 'npm test', timeoutSec: 60 }];
+  return { runs, checker: { load: async () => checks, run: async (list, cwd) => {
+    runs.push(cwd);
+    const ok = outcomes.shift();
+    return list.map((check) => ({ ...check, ok, code: ok ? 0 : 1, timedOut: false, durationMs: 2000,
+      output: ok ? '' : 'FAIL test_a — attendu 2, reçu 3' }));
+  } } };
+}
+
 test('parseVerdict : PASS explicite, sinon CHANGES', () => {
   assert.equal(parseVerdict('ok\nNAY-VERDICT: PASS'), 'PASS');
   assert.equal(parseVerdict('NAY-VERDICT: changes'), 'CHANGES');
@@ -54,7 +70,7 @@ test('story : sans commit demandé, le relecteur reçoit le diff non committé',
     (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait sans commit'); },
     (agent) => result(agent, 'NAY-VERDICT: PASS'),
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: () => assert.fail('commit interdit') });
+  const report = await story('brief', { execute, git, delegation, committer: () => assert.fail('commit interdit') });
   assert.equal(report.code, EXIT.ok);
   assert.match(calls[1].prompt, /diff non committé/);
 });
@@ -65,7 +81,7 @@ test('story hors git : un lien symbolique créé par un agent en échec bloque l
     const { calls, execute } = scripted([
       async (agent) => { await symlink('/tmp', join(dir, 'lien')); return result(agent, '', { status: 'error', error: 'crash' }); },
     ]);
-    const report = await runStory('brief', { cwd: dir, execute, delegation });
+    const report = await story('brief', { cwd: dir, execute, delegation });
     assert.equal(report.status, 'BLOQUÉ');
     assert.equal(calls.length, 1);
   } finally {
@@ -82,7 +98,7 @@ test('story hors git : un agent en échec qui n’a rien écrit cède la place',
       async (agent) => { await writeFile(join(dir, 'a.txt'), 'b\n'); return result(agent, 'fait'); },
       (agent) => result(agent, 'NAY-VERDICT: PASS'),
     ]);
-    const report = await runStory('brief', { cwd: dir, execute, delegation });
+    const report = await story('brief', { cwd: dir, execute, delegation });
     assert.equal(report.code, EXIT.ok);
     assert.deepEqual(calls.map((c) => c.agent), ['sol', 'sonnet', 'hydrogen']);
   } finally {
@@ -104,7 +120,7 @@ test('story : la retouche d’un fichier déjà modifié est détectée', async 
     const { calls, execute } = scripted([
       async (agent) => { await writeFile(join(dir, 'a.txt'), 'v3\n'); return result(agent, '', { status: 'error', error: 'crash' }); },
     ]);
-    const report = await runStory('brief', { cwd: dir, execute, delegation });
+    const report = await story('brief', { cwd: dir, execute, delegation });
     assert.equal(report.status, 'BLOQUÉ');
     assert.equal(calls.length, 1);
   } finally {
@@ -118,7 +134,7 @@ test('story : dev, commit, revue PASS', async () => {
     (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait\nNAY-COMMIT: feat: a\nNAY-FILES: a.py\nNAY-CHECKS: pytest 3 passés'); },
     (agent) => result(agent, 'RAS\nNAY-VERDICT: PASS'),
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: commitOk });
+  const report = await story('brief', { execute, git, delegation, committer: commitOk });
   assert.equal(report.code, EXIT.ok);
   assert.equal(report.dev, 'sol');
   assert.deepEqual(report.commits, ['abc1 feat: a']);
@@ -128,6 +144,54 @@ test('story : dev, commit, revue PASS', async () => {
   assert.match(calls[1].prompt, /le commit abc1/);
   assert.match(calls[1].prompt, /diff du commit abc1/);
   assert.match(formatStory(report), /Statut : OK/);
+  assert.match(formatStory(report), /pytest 3 passés \(déclarés par le dev, non vérifiés\)/);
+});
+
+test('story : contrôles en échec renvoyés au dev sans relecture, puis revue avec le résultat', async () => {
+  const { git, state } = fakeGit();
+  const { runs, checker } = fakeChecks([false, true]);
+  const { calls, execute } = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait\nNAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'corrigé\nNAY-COMMIT: fix: a\nNAY-FILES: a.py'),
+    (agent) => result(agent, 'RAS\nNAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation, committer: commitOk, checker, cwd: '/projet' });
+  assert.equal(report.code, EXIT.ok);
+  assert.deepEqual(runs, ['/projet', '/projet']);
+  assert.match(calls[0].prompt, /Nay lancera lui-même ces contrôles : `npm test`/);
+  assert.doesNotMatch(calls[0].prompt, /NAY-CHECKS/);
+  assert.equal(calls[1].agent, 'sol');
+  assert.equal(calls[1].options.resume, 'sol-s');
+  assert.match(calls[1].prompt, /Contrôles lancés par Nay en échec[\s\S]*FAIL test_a/);
+  assert.equal(calls[2].agent, 'hydrogen');
+  assert.match(calls[2].prompt, /Contrôles lancés par Nay, tous réussis : tests ok \(2 s\)/);
+  assert.equal(report.checksBy, 'nay');
+  assert.match(formatStory(report), /Contrôles : tests ok \(2 s\)\n/);
+});
+
+test('story : contrôles toujours en échec au dernier tour → CONTRÔLES, sans relecteur', async () => {
+  const { git, state } = fakeGit();
+  const { checker } = fakeChecks([false, false]);
+  const { calls, execute } = scripted([
+    (agent) => { state.dirty = ' M a.py'; return result(agent, 'fait\nNAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
+    (agent) => result(agent, 'essayé\nNAY-COMMIT: fix: a\nNAY-FILES: a.py'),
+  ]);
+  const report = await story('brief', { execute, git, delegation, committer: commitOk, checker });
+  assert.equal(report.status, 'CONTRÔLES');
+  assert.equal(report.code, EXIT.blocked);
+  assert.equal(calls.length, 2);
+  assert.match(formatStory(report), /Contrôles : tests ÉCHEC \(code 1\)/);
+  assert.match(formatStory(report), /Contrôles en échec :\n### tests — code 1/);
+});
+
+test('story : un fichier de contrôles invalide bloque avant tout appel d’agent', async () => {
+  const { git } = fakeGit();
+  const { calls, execute } = scripted([]);
+  const checker = { load: async () => { throw new Error('JSON invalide'); }, run: async () => [] };
+  const report = await story('brief', { execute, git, delegation, checker });
+  assert.equal(report.status, 'BLOQUÉ');
+  assert.match(report.detail, /Contrôles du projet illisibles : JSON invalide/);
+  assert.equal(calls.length, 0);
 });
 
 test('story : un dev qui échoue sans rien modifier cède la place au suivant', async () => {
@@ -137,7 +201,7 @@ test('story : un dev qui échoue sans rien modifier cède la place au suivant', 
     (agent) => { state.dirty = ' M a.py'; return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
     (agent) => result(agent, 'NAY-VERDICT: PASS'),
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: commitOk });
+  const report = await story('brief', { execute, git, delegation, committer: commitOk });
   assert.equal(report.code, EXIT.ok);
   assert.equal(report.dev, 'sonnet');
   assert.deepEqual(report.devSkipped, [{ agent: 'sol', reason: 'quota épuisé' }]);
@@ -150,7 +214,7 @@ test('story : un dev qui échoue après avoir modifié des fichiers bloque', asy
   const { calls, execute } = scripted([
     (agent) => { state.dirty = ' M a.py'; return result(agent, '', { status: 'timeout', error: 'délai dépassé' }); },
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: commitOk });
+  const report = await story('brief', { execute, git, delegation, committer: commitOk });
   assert.equal(report.code, EXIT.blocked);
   assert.equal(report.status, 'BLOQUÉ');
   assert.equal(calls.length, 1);
@@ -158,7 +222,7 @@ test('story : un dev qui échoue après avoir modifié des fichiers bloque', asy
 
 test('story : aucun dev disponible donne le code 2', async () => {
   const { git } = fakeGit();
-  const report = await runStory('brief', { execute: () => assert.fail('appel interdit'), git, delegation,
+  const report = await story('brief', { execute: () => assert.fail('appel interdit'), git, delegation,
     isAvailable: () => false });
   assert.equal(report.code, EXIT.noAgent);
   assert.match(formatStory(report), /AUCUN AGENT/);
@@ -172,7 +236,7 @@ test('story : CHANGES puis correction par reprise, puis PASS', async () => {
     (agent) => result(agent, 'corrigé\nNAY-COMMIT: fix: a\nNAY-FILES: a.py', { sessionId: null }),
     (agent) => result(agent, 'NAY-VERDICT: PASS'),
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: commitOk });
+  const report = await story('brief', { execute, git, delegation, committer: commitOk });
   assert.equal(report.code, EXIT.ok);
   assert.equal(calls[2].agent, 'sol');
   assert.equal(calls[2].options.resume, 'sol-s');
@@ -189,7 +253,7 @@ test('story : défauts restants après le dernier tour, constats remontés', asy
     (agent) => { state.dirty = ' M a.py'; return result(agent, 'NAY-COMMIT: feat: a\nNAY-FILES: a.py'); },
     (agent) => result(agent, 'toujours faux\nNAY-VERDICT: CHANGES'),
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: commitOk, maxRounds: 1 });
+  const report = await story('brief', { execute, git, delegation, committer: commitOk, maxRounds: 1 });
   assert.equal(report.code, EXIT.blocked);
   assert.equal(report.status, 'DÉFAUTS');
   assert.match(formatStory(report), /Constats du relecteur :\ntoujours faux/);
@@ -202,7 +266,7 @@ test('story : un relecteur en échec cède la place au suivant, jamais à l’au
     (agent) => result(agent, '', { status: 'error', error: 'agy absent' }),
     (agent) => result(agent, 'NAY-VERDICT: PASS'),
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: commitOk });
+  const report = await story('brief', { execute, git, delegation, committer: commitOk });
   assert.equal(report.code, EXIT.ok);
   assert.deepEqual(calls.map((c) => c.agent), ['sol', 'hydrogen', 'terra']);
 });
@@ -213,7 +277,7 @@ test('story hors dépôt git : pas de consigne de commit, revue des fichiers mod
     (agent) => result(agent, 'fait'),
     (agent) => result(agent, 'NAY-VERDICT: PASS'),
   ]);
-  const report = await runStory('brief', { execute, git, delegation, committer: () => assert.fail('commit interdit') });
+  const report = await story('brief', { execute, git, delegation, committer: () => assert.fail('commit interdit') });
   assert.equal(report.code, EXIT.ok);
   assert.doesNotMatch(calls[0].prompt, /NAY-COMMIT/);
   assert.match(calls[1].prompt, /fichiers modifiés/);
@@ -222,7 +286,7 @@ test('story hors dépôt git : pas de consigne de commit, revue des fichiers mod
 test('story : un dev qui ne change rien bloque avant la revue', async () => {
   const { git } = fakeGit();
   const { calls, execute } = scripted([(agent) => result(agent, 'rien à faire')]);
-  const report = await runStory('brief', { execute, git, delegation, committer: commitOk });
+  const report = await story('brief', { execute, git, delegation, committer: commitOk });
   assert.equal(report.code, EXIT.blocked);
   assert.equal(calls.length, 1);
 });
@@ -245,7 +309,7 @@ test('story sur un vrai dépôt : le commit de Nay est relu', async () => {
     const traces = [];
     const committer = (request, options) => commitAndRecord(request, { ...options,
       record: async (call, outcome) => traces.push({ call, outcome }) });
-    const report = await runStory('brief', { cwd: dir, execute, delegation, committer });
+    const report = await story('brief', { cwd: dir, execute, delegation, committer });
     assert.equal(report.code, EXIT.ok);
     assert.equal(sh('log', '-1', '--format=%s'), 'feat: a');
     assert.equal(traces.length, 1);
