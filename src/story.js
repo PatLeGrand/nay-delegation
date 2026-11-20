@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, readlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { COMMIT_INSTRUCTIONS, commitRequest, lastMarker, parseCommitRequest } from './commit.js';
+import { COMMIT_INSTRUCTIONS, commitAndRecord, lastMarker, parseCommitRequest } from './commit.js';
 import { chooseAgent } from './delegation.js';
 import { runAgent } from './runAgent.js';
 
@@ -131,7 +131,7 @@ function withoutMarkers(text = '') {
 }
 
 export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds = 2, execute = runAgent,
-  isAvailable = () => true, delegation, git = gitOps, committer = commitRequest } = {}) {
+  isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord } = {}) {
   const report = { dev: null, devSkipped: [], commits: [], reviews: [], checks: null, status: 'OK',
     code: EXIT.ok, detail: null, findings: null };
   const isGit = await git.isRepo(cwd);
@@ -174,7 +174,8 @@ export async function runStory(brief, { cwd = process.cwd(), feature, maxRounds 
       const request = parseCommitRequest(dev.text);
       if (request) {
         try {
-          const line = await committer(request, { cwd });
+          const line = await committer(request, { cwd, call: { callId: dev.callId, agent: dev.agent,
+            model: dev.model, feature, role: 'dev' } });
           report.commits.push(line);
           const hash = line.split(' ')[0];
           target = `le commit ${hash}, dont voici le diff complet (ouvre les fichiers si tu as besoin `

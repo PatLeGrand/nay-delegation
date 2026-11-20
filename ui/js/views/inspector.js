@@ -93,6 +93,19 @@ function renderEventItem(ev) {
     );
   }
 
+  if (ev.kind === 'commit') {
+    return el('li', { class: `event-item event-item--meta${ev.ok ? '' : ' event-item--fail'}` },
+      el('div', { class: 'event-row' },
+        ts,
+        el('span', { class: `badge ${ev.ok ? 'badge-ok' : 'badge-danger'}` }, ev.ok ? 'Commit' : 'Commit échoué'),
+        el('span', { class: 'mono small' }, ev.ok ? (ev.commit ?? '') : (ev.message ?? '')),
+      ),
+      ev.error ? el('p', { class: 'danger-text small mono' }, ev.error) : null,
+      Array.isArray(ev.files) && ev.files.length
+        ? el('p', { class: 'small mono' }, `${ev.files.length} fichier(s) : ${ev.files.join(' ')}`) : null,
+    );
+  }
+
   return null;
 }
 
