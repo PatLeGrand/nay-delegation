@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EXIT, formatStory, parseVerdict, runStory } from '../src/story.js';
+import { EXIT, formatStory, parseDisputes, parseVerdict, runStory } from '../src/story.js';
 import { commitAndRecord } from '../src/commit.js';
 import { runCommand } from '../src/command.js';
 
@@ -514,4 +514,216 @@ test('nay story CLI : transmet --skip-baseline et --no-roles', async () => {
         code: EXIT.ok, detail: null, findings: null };
     } });
   assert.equal(code, 0);
+});
+
+// --- Relecture en deux temps : conformité au brief, puis qualité ---
+
+const conformityDelegation = { ...delegation, conformite: ['sol', 'haiku', 'luna'] };
+const devCommit = (state, text = 'fait') => (agent) => {
+  state.dirty = ' M a.py';
+  return result(agent, `${text}\nNAY-COMMIT: feat: a\nNAY-FILES: a.py`);
+};
+
+test('story : conformité au brief (hors auteur, lecture seule) avant la relecture qualité', async () => {
+  const { git, state } = fakeGit();
+  const events = [];
+  const { calls, execute } = scripted([
+    devCommit(state),
+    (agent) => result(agent, 'conforme\nNAY-VERDICT: PASS'),
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief initial', { execute, git, delegation: conformityDelegation, committer: commitOk,
+    journal: (e) => events.push(e) });
+  assert.equal(report.code, EXIT.ok);
+  assert.deepEqual(calls.map((c) => [c.agent, c.options.role, c.options.mode]),
+    [['sol', 'dev', 'write'], ['haiku', 'conformite', 'read'], ['hydrogen', 'relecteur', 'read']]);
+  assert.match(calls[1].prompt, /brief initial/);
+  assert.match(calls[1].prompt, /ni plus ni moins/);
+  assert.match(calls[1].prompt, /diff du commit abc1/);
+  assert.deepEqual(report.conformity, [{ agent: 'haiku', round: 1, verdict: 'PASS' }]);
+  assert.deepEqual(events.at(-1).conformity, report.conformity);
+  assert.match(formatStory(report), /Conformité : haiku PASS \(tour 1\)\nRevue : hydrogen PASS/);
+});
+
+test('story : conformité CHANGES → retour au dev sans relecteur qualité, compte comme un tour', async () => {
+  const { git, state } = fakeGit();
+  const { calls, execute } = scripted([
+    devCommit(state),
+    (agent) => result(agent, 'ajout hors brief : export CSV\nNAY-VERDICT: CHANGES'),
+    (agent) => result(agent, 'retiré\nNAY-COMMIT: fix: a\nNAY-FILES: a.py'),
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation: conformityDelegation, committer: commitOk });
+  assert.equal(report.code, EXIT.ok);
+  assert.deepEqual(calls.map((c) => c.options.role), ['dev', 'conformite', 'dev', 'conformite', 'relecteur']);
+  assert.equal(calls[2].options.resume, 'sol-s');
+  assert.match(calls[2].prompt, /Écarts au brief[\s\S]*export CSV/);
+  assert.deepEqual(report.reviews, [{ agent: 'hydrogen', round: 2, verdict: 'PASS' }]);
+
+  const last = scripted([devCommit(state), (agent) => result(agent, 'manque la pagination\nNAY-VERDICT: CHANGES')]);
+  const blocked = await story('brief', { execute: last.execute, git, delegation: conformityDelegation,
+    committer: commitOk, maxRounds: 1 });
+  assert.equal(blocked.status, 'DÉFAUTS');
+  assert.deepEqual(blocked.reviews, []);
+  assert.match(formatStory(blocked), /Écarts au brief \(contrôle de conformité\) :\nmanque la pagination/);
+});
+
+test('story : conformité sautée et notée sans rôle ou sans modèle ; --no-conformity la retire', async () => {
+  const { git, state } = fakeGit();
+  const flow = () => scripted([devCommit(state), (agent) => result(agent, 'NAY-VERDICT: PASS')]);
+  const absent = flow();
+  const noRole = await story('brief', { execute: absent.execute, git, delegation, committer: commitOk });
+  assert.equal(noRole.code, EXIT.ok);
+  assert.deepEqual(noRole.conformity, [{ agent: null, round: 1, verdict: 'sauté (rôle absent de la délégation)' }]);
+  assert.match(formatStory(noRole), /Conformité : sauté \(rôle absent de la délégation\) \(tour 1\)/);
+
+  // Seul l'auteur est proposé : aucun modèle disponible.
+  const onlyAuthor = flow();
+  const noModel = await story('brief', { execute: onlyAuthor.execute, git, committer: commitOk,
+    delegation: { ...delegation, conformite: ['sol'] } });
+  assert.equal(noModel.code, EXIT.ok);
+  assert.deepEqual(noModel.conformity, [{ agent: null, round: 1, verdict: 'sauté' }]);
+
+  const off = flow();
+  const skipped = await story('brief', { execute: off.execute, git, delegation: conformityDelegation,
+    committer: commitOk, skipConformity: true });
+  assert.deepEqual(off.calls.map((c) => c.options.role), ['dev', 'relecteur']);
+  assert.deepEqual(skipped.conformity, []);
+  assert.doesNotMatch(formatStory(skipped), /Conformité/);
+});
+
+test('nay story CLI : transmet --no-conformity', async () => {
+  const captured = { stdout: '', stderr: '', input: Readable.from(['brief']) };
+  captured.output = { write(chunk) { captured.stdout += chunk; } };
+  captured.errorOutput = { write(chunk) { captured.stderr += chunk; } };
+  const code = await runCommand(['story', '-', '--no-conformity'], { ...captured, quotasReader: async () => ({}),
+    storyRunner: async (text, options) => {
+      assert.equal(options.skipConformity, true);
+      return { dev: 'sol', devSkipped: [], commits: [], reviews: [], roles: [], checks: null, status: 'OK',
+        code: EXIT.ok, detail: null, findings: null };
+    } });
+  assert.equal(code, 0);
+});
+
+// --- TDD vérifié ---
+
+function tddChecker(proofs) {
+  const asked = [];
+  const checks = [{ name: 'lint', command: 'ruff .', timeoutSec: 60 },
+    { name: 'tests', command: 'pytest', timeoutSec: 60, tdd: true }];
+  return { asked, checker: {
+    load: async () => checks,
+    run: async (list) => list.map((check) => ({ ...check, ok: true, code: 0, timedOut: false, durationMs: 1000, output: '' })),
+    tdd: async (check, cwd, commit) => {
+      asked.push([check.name, commit]);
+      const proof = proofs.shift();
+      if (proof instanceof Error) throw proof;
+      return proof;
+    } } };
+}
+
+test('story : TDD prouvé (rouges avant, verts après) ou non prouvé, signalé au relecteur qualité', async () => {
+  const { git, state } = fakeGit();
+  const proved = tddChecker([{ files: ['test/a.test.js'], proved: true }]);
+  const ok = scripted([devCommit(state), (agent) => result(agent, 'NAY-VERDICT: PASS')]);
+  const report = await story('brief', { execute: ok.execute, git, delegation, committer: commitOk, checker: proved.checker });
+  assert.deepEqual(proved.asked, [['tests', 'abc1']]);
+  assert.doesNotMatch(ok.calls[1].prompt, /ne prouvent peut-être rien/);
+  assert.match(formatStory(report), /TDD : tests rouges avant, verts après \(tour 1\)/);
+
+  const weak = tddChecker([{ files: ['test/a.test.js'], proved: false }]);
+  const flow = scripted([devCommit(state), (agent) => result(agent, 'NAY-VERDICT: PASS')]);
+  const unproved = await story('brief', { execute: flow.execute, git, delegation, committer: commitOk, checker: weak.checker });
+  assert.equal(unproved.code, EXIT.ok);
+  assert.match(flow.calls[1].prompt, /les nouveaux tests passent sans le changement : ils ne prouvent peut-être rien/);
+  assert.equal(unproved.tdd[0].verdict, 'non prouvé');
+  assert.match(formatStory(unproved), /TDD : non prouvé/);
+
+  // Erreur (worktree impossible) : notée sans bloquer.
+  const broken = tddChecker([new Error('worktree impossible\ndétail')]);
+  const flow2 = scripted([devCommit(state), (agent) => result(agent, 'NAY-VERDICT: PASS')]);
+  const errored = await story('brief', { execute: flow2.execute, git, delegation, committer: commitOk, checker: broken.checker });
+  assert.equal(errored.code, EXIT.ok);
+  assert.match(formatStory(errored), /TDD : non vérifié \(worktree impossible\)/);
+});
+
+test('story : TDD sauté sans contrôle « tdd », sans commit ou sans test dans le commit', async () => {
+  const { git, state } = fakeGit();
+  const { checker } = fakeChecks([true, true]);
+  const flow = scripted([devCommit(state), (agent) => result(agent, 'NAY-VERDICT: PASS')]);
+  const noFlag = await story('brief', { execute: flow.execute, git, delegation, committer: commitOk,
+    checker: { ...checker, tdd: () => assert.fail('pas de contrôle tdd') } });
+  assert.deepEqual(noFlag.tdd, []);
+  assert.doesNotMatch(formatStory(noFlag), /TDD/);
+
+  const noCommit = tddChecker([]);
+  const flow2 = scripted([(agent) => { state.dirty = ' M a.py'; return result(agent, 'fait'); },
+    (agent) => result(agent, 'NAY-VERDICT: PASS')]);
+  await story('brief', { execute: flow2.execute, git, delegation, committer: commitOk, checker: noCommit.checker });
+  assert.deepEqual(noCommit.asked, []);
+
+  const noTests = tddChecker([null]);
+  const flow3 = scripted([devCommit(state), (agent) => result(agent, 'NAY-VERDICT: PASS')]);
+  const report = await story('brief', { execute: flow3.execute, git, delegation, committer: commitOk, checker: noTests.checker });
+  assert.deepEqual(noTests.asked, [['tests', 'abc1']]);
+  assert.deepEqual(report.tdd, []);
+});
+
+// --- Contestation par le dev ---
+
+test('parseDisputes : remarque et raison, plusieurs lignes', () => {
+  assert.deepEqual(parseDisputes('ok\nNAY-DISPUTE: a.py:3 — x — déjà validé en amont\nNAY-DISPUTE: renommer f\nNAY-COMMIT: x'), [
+    { remark: 'a.py:3 — x', reason: 'déjà validé en amont' },
+    { remark: 'renommer f', reason: '' }]);
+  assert.deepEqual(parseDisputes('rien'), []);
+});
+
+test('story : contestation sans changement → DÉSACCORD, remarques et raisons affichées', async () => {
+  const { git, state } = fakeGit();
+  const events = [];
+  const { calls, execute } = scripted([
+    devCommit(state),
+    (agent) => result(agent, 'a.py:3 — division par zéro\nNAY-VERDICT: CHANGES'),
+    (agent) => result(agent, 'Je conteste.\nNAY-DISPUTE: a.py:3 division par zéro — b est validé non nul par parse()'),
+  ]);
+  const report = await story('brief', { execute, git, delegation, committer: commitOk, journal: (e) => events.push(e) });
+  assert.match(calls[2].prompt, /NAY-DISPUTE: <remarque contestée> — <raison>/);
+  assert.equal(report.status, 'DÉSACCORD');
+  assert.equal(report.code, EXIT.blocked);
+  assert.deepEqual(report.disputes, [{ round: 1, remark: 'a.py:3 division par zéro', reason: 'b est validé non nul par parse()' }]);
+  assert.match(formatStory(report), /Désaccords à trancher :\n- a\.py:3 division par zéro — b est validé non nul par parse\(\)/);
+  assert.equal(events.at(-1).status, 'DÉSACCORD');
+  assert.deepEqual(events.at(-1).disputes, report.disputes);
+});
+
+test('story : contestation avec changements → la boucle continue, le relecteur suivant tranche', async () => {
+  const { git, state } = fakeGit();
+  const { calls, execute } = scripted([
+    devCommit(state),
+    (agent) => result(agent, 'bug ligne 3\nrenommer f\nNAY-VERDICT: CHANGES'),
+    (agent) => {
+      state.dirty = ' M a.py b.py';
+      return result(agent, 'bug corrigé\nNAY-DISPUTE: renommer f — nom imposé par l’API\nNAY-COMMIT: fix: a\nNAY-FILES: a.py');
+    },
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation, committer: commitOk });
+  assert.equal(report.code, EXIT.ok);
+  assert.match(calls[3].prompt, /Le dev conteste : « renommer f » \(raison : nom imposé par l’API\) ; tranche/);
+  assert.match(formatStory(report), /Contestations : renommer f — nom imposé par l’API \(tour 1\)/);
+});
+
+test('story : pas de contestation proposée pour des contrôles en échec', async () => {
+  const { git, state } = fakeGit();
+  const { checker } = fakeChecks([true, false, true]);
+  const { calls, execute } = scripted([
+    devCommit(state),
+    (agent) => result(agent, 'NAY-DISPUTE: test faux — non\nNAY-COMMIT: fix: a\nNAY-FILES: a.py'),
+    (agent) => result(agent, 'NAY-VERDICT: PASS'),
+  ]);
+  const report = await story('brief', { execute, git, delegation, committer: commitOk, checker });
+  assert.doesNotMatch(calls[1].prompt, /NAY-DISPUTE/);
+  assert.equal(report.code, EXIT.ok);
+  assert.deepEqual(report.disputes, []);
 });

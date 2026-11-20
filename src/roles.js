@@ -7,6 +7,7 @@ export const BUILTIN_ROLES = {
   developpeur: 'écrit le code (nay story)',
   tachesFaciles: 'tâches de code simples',
   surAppel: 'secours sur demande explicite',
+  conformite: 'vérifie que le changement fait ce que demande le brief, ni plus ni moins (nay story)',
   relecteur: 'relit le travail d’un autre modèle (nay story)',
 };
 

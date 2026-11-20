@@ -38,7 +38,8 @@ test('loadChecks : absent → null ; nom et délai par défaut', async () => {
 
 test('loadChecks : un fichier invalide est une erreur, pas une absence de contrôles', async () => {
   for (const [content, message] of [['{', /JSON invalide/], ['{"checks":[]}', /liste non vide/],
-    ['{"checks":[{"name":"x"}]}', /sans « command »/], ['{"checks":[{"command":"a","timeoutSec":0}]}', /timeoutSec/]]) {
+    ['{"checks":[{"name":"x"}]}', /sans « command »/], ['{"checks":[{"command":"a","timeoutSec":0}]}', /timeoutSec/],
+    ['{"checks":[{"command":"a","tdd":"oui"}]}', /« tdd » doit être un booléen/]]) {
     await withProject(content, async (dir) => assert.rejects(loadChecks(dir, config), message));
   }
 });
@@ -65,5 +66,21 @@ test('runChecks : un contrôle trop long est arrêté et compté en échec', asy
     assert.equal(result.ok, false);
     assert.equal(result.timedOut, true);
     assert.match(formatChecks([result]), /lent ÉCHEC \(délai de 0.3 s dépassé\)/);
+  });
+});
+
+test('loadChecks : le contrôle marqué « tdd » est repéré ; config : motifs de tests lus', async () => {
+  await withProject(JSON.stringify({ checks: [{ name: 'lint', command: 'ruff .' }, { name: 'tests', command: 'pytest', tdd: true }] }),
+    async (dir) => assert.deepEqual((await loadChecks(dir, config)).map((check) => check.tdd), [undefined, true]));
+  const loaded = loadChecksConfig();
+  assert.ok(loaded.testPatterns.length > 0);
+  assert.equal(typeof loaded.tddWorktreesDir, 'string');
+});
+
+test('runChecks : extraEnv complète les variables d’env de la config', async () => {
+  await withProject(undefined, async (dir) => {
+    const [result] = await runChecks([{ name: 'env', command: node('process.exit(process.env.NAY_TEST_FILES === \'a b\' && process.env.CI === \'1\' ? 0 : 4)'), timeoutSec: 30 }],
+      { cwd: dir, config, extraEnv: { NAY_TEST_FILES: 'a b' } });
+    assert.equal(result.ok, true);
   });
 });

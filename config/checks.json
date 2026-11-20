@@ -3,5 +3,17 @@
   "defaultTimeoutSec": 600,
   "maxOutputChars": 4000,
   "baseline": true,
-  "env": { "CI": "1" }
+  "env": {
+    "CI": "1"
+  },
+  "testPatterns": [
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*_test.*",
+    "**/test_*.py"
+  ],
+  "tddWorktreesDir": ".nay/worktrees"
 }
