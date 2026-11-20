@@ -263,12 +263,12 @@ export function buildStoryRelays({ features = [], storyChecks = [], usage, statu
   };
 
   for (const report of storyChecks) {
-    relayFor(report.feature || NO_FEATURE_LABEL).storyChecks.push(report);
+    relayFor(report.feature ?? NO_FEATURE_LABEL).storyChecks.push(report);
   }
 
   const seenCallIds = new Set();
   const attachCall = (raw, isLive = false) => {
-    const key = raw.feature || NO_FEATURE_LABEL;
+    const key = raw.feature ?? NO_FEATURE_LABEL;
     if (featureFilter && raw.feature !== featureFilter) return;
     if (raw.callId && seenCallIds.has(raw.callId)) return;
     if (raw.callId) seenCallIds.add(raw.callId);

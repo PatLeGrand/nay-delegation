@@ -28,14 +28,12 @@ function renderDayChronogram(state, actions) {
   );
   const spanMs = Math.max(60_000, maxMs - minMs);
 
-  // Regroupement par fonctionnalité, ou par branche pour les appels sans fonctionnalité.
+  // Regroupement par fonctionnalité
   const groups = new Map();
   for (const call of calls) {
-    const feature = call.feature || null;
-    const branch = feature ? null : call.branch || null;
-    const key = JSON.stringify([feature, branch]);
-    if (!groups.has(key)) groups.set(key, { label: feature || branch || NO_FEATURE_LABEL, calls: [] });
-    groups.get(key).calls.push(call);
+    const key = call.feature ?? NO_FEATURE_LABEL;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(call);
   }
 
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((p) => ({
@@ -55,10 +53,10 @@ function renderDayChronogram(state, actions) {
       ...ticks.map((t) => el('span', { class: 'chrono-tick mono muted', style: { left: `${t.pct}%` } }, t.label)),
     ),
     el('div', { class: 'chrono-rows' },
-      ...[...groups.values()].map(({ label, calls: featCalls }) => {
+      ...[...groups.entries()].map(([feat, featCalls]) => {
         const sorted = [...featCalls].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
         return el('div', { class: 'chrono-group' },
-          el('div', { class: 'chrono-group__label mono' }, label),
+          el('div', { class: 'chrono-group__label mono' }, feat),
           el('div', { class: 'chrono-lanes' },
             ...sorted.map((call) => {
               const s = Date.parse(call.startedAt);
@@ -66,7 +64,8 @@ function renderDayChronogram(state, actions) {
               const leftPct = Math.max(0, Math.min(99, ((s - minMs) / spanMs) * 100));
               const widthPct = Math.max(1.2, Math.min(100 - leftPct, ((Math.max(e, s + 1000) - s) / spanMs) * 100));
               const dur = Math.max(0, e - s);
-              return el('div', { class: 'chrono-lane' },
+              const branch = call.feature ? null : call.branch;
+              const lane = el('div', { class: 'chrono-lane' },
                 el('button', {
                   type: 'button',
                   class: `chrono-bar chrono-bar--${call.status ?? 'ok'}`,
@@ -76,12 +75,13 @@ function renderDayChronogram(state, actions) {
                     '--agent-color': agentColor(call.agent),
                   },
                   title: `${agentLabel(call.agent)} · ${roleLabel(call.role)} · ${formatDuration(dur)}`,
-                  'aria-label': `${agentLabel(call.agent)} sur ${label}, ${formatDuration(dur)}, statut ${call.status}`,
+                  'aria-label': `${agentLabel(call.agent)} sur ${branch || feat}, ${formatDuration(dur)}, statut ${call.status}`,
                   onClick: () => actions.openCall(call.callId),
                 },
                   el('span', { class: 'chrono-bar__text' }, `${agentLabel(call.agent)} · ${formatDuration(dur)}`),
                 ),
               );
+              return branch ? [el('small', { class: 'mono muted' }, branch), lane] : lane;
             }),
           ),
         );

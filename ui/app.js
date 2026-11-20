@@ -116,7 +116,7 @@ let statusDebounceTimer = null;
 let inspectorRefreshTimer = null;
 let featureCards = [];
 let storyReports = [];
-const latestRequests = new Map();
+let projectRevision = 0;
 
 function notify(message, tone = 'info') {
   const toast = el('div', { class: `toast toast--${tone}`, role: 'status' }, message);
@@ -160,6 +160,7 @@ function applyProjectFilter() {
 function setProject(project) {
   if (project === state.project) return;
   state.project = project;
+  projectRevision++;
   try { localStorage.setItem(PROJECT_KEY, project); } catch { /* ignore */ }
   state.feature = '';
   state.allFeaturesList = [];
@@ -184,15 +185,12 @@ function updateProjectOptions() {
 function updateFeatureOptions() {
   state.allFeaturesList = featureNames(state);
 
-  const select = dom.featureSelect;
-  const names = state.allFeaturesList;
-  if (select.options.length !== names.length + 1 || names.some((name, index) => select.options[index + 1].value !== name)) {
-    mount(select,
-      el('option', { value: '' }, 'Toutes les fonctionnalités'),
-      ...names.map((name) => el('option', { value: name }, name)),
-    );
-  }
-  if (select.value !== state.feature) select.value = state.feature;
+  const current = state.feature;
+  mount(dom.featureSelect,
+    el('option', { value: '' }, 'Toutes les fonctionnalités'),
+    ...state.allFeaturesList.map((name) => el('option', { value: name, selected: name === current }, name)),
+  );
+  dom.featureSelect.value = current;
 }
 
 function renderNav() {
@@ -266,6 +264,7 @@ function restoreFocus(focus) {
 
 async function refreshAll({ includeSlow = true, includeUsage = true } = {}) {
   const filters = { feature: state.feature, project: state.project };
+  const revision = projectRevision;
   const tasks = [['status', fetchStatus(filters)]];
   if (includeUsage) {
     const since = computeSinceIso(state.period, Date.now());
@@ -292,9 +291,9 @@ async function refreshAll({ includeSlow = true, includeUsage = true } = {}) {
   };
 
   await Promise.allSettled(tasks.map(([key, promise]) => {
-    latestRequests.set(key, promise);
+    const outdatedProject = () => (key === 'status' || key === 'usage') && revision !== projectRevision;
     return promise.then((value) => {
-      if (latestRequests.get(key) !== promise) return;
+      if (outdatedProject()) return;
       delete state.apiErrors[key];
       if (key === 'features') {
         featureCards = value;
@@ -308,7 +307,7 @@ async function refreshAll({ includeSlow = true, includeUsage = true } = {}) {
       }
       scheduleRender();
     }).catch((reason) => {
-      if (latestRequests.get(key) !== promise) return;
+      if (outdatedProject()) return;
       state.apiErrors[key] = reason?.message ?? `Erreur ${key}`;
       scheduleRender();
     });
@@ -339,7 +338,6 @@ function connectSse() {
     sseSource = null;
   }
   clearTimeout(sseReconnectTimer);
-  clearTimeout(statusDebounceTimer);
   state.sseState = 'connecting';
 
   const query = buildQuery({ feature: state.feature, project: state.project });
@@ -405,15 +403,12 @@ async function loadCallWithRetry(callId) {
 
 function scheduleInspectorRefresh(callId) {
   clearTimeout(inspectorRefreshTimer);
-  const inspector = state.inspector;
-  const ended = inspector.data?.events?.some((e) => e.kind === 'call_end');
-  if (!inspector.open || inspector.callId !== callId || ended) return;
+  const ended = state.inspector.data?.events?.some((e) => e.kind === 'call_end');
+  if (!state.inspector.open || state.inspector.callId !== callId || ended) return;
   inspectorRefreshTimer = setTimeout(async () => {
-    if (!inspector.open || state.inspector !== inspector) return;
+    if (!state.inspector.open || state.inspector.callId !== callId) return;
     try {
-      const data = await fetchCall(callId);
-      if (!inspector.open || state.inspector !== inspector) return;
-      inspector.data = data;
+      state.inspector.data = await fetchCall(callId);
       renderInspector(dom.drawerRoot, state, actions);
       scheduleInspectorRefresh(callId);
     } catch { /* ignore */ }
@@ -477,7 +472,7 @@ const actions = {
   async openCall(callId) {
     if (!callId) return;
     clearTimeout(inspectorRefreshTimer);
-    const inspector = state.inspector = {
+    state.inspector = {
       open: true,
       callId,
       loading: true,
@@ -490,14 +485,14 @@ const actions = {
     renderInspector(dom.drawerRoot, state, actions);
     try {
       const data = await loadCallWithRetry(callId);
-      if (!inspector.open || state.inspector !== inspector) return;
+      if (state.inspector.callId !== callId) return;
       state.inspector.loading = false;
       state.inspector.data = data;
       renderInspector(dom.drawerRoot, state, actions);
       dom.drawerRoot.querySelector('.drawer__close')?.focus();
       scheduleInspectorRefresh(callId);
     } catch (error) {
-      if (!inspector.open || state.inspector !== inspector) return;
+      if (state.inspector.callId !== callId) return;
       state.inspector.loading = false;
       state.inspector.error = error.message ?? 'Impossible de charger cet appel.';
       renderInspector(dom.drawerRoot, state, actions);
@@ -517,8 +512,7 @@ const actions = {
   },
 
   async submitResume() {
-    const inspector = state.inspector;
-    const { callId, resumeText, resuming } = inspector;
+    const { callId, resumeText, resuming } = state.inspector;
     if (!callId || !resumeText.trim() || resuming) return;
     state.inspector.resuming = true;
     state.inspector.resumeError = null;
@@ -526,10 +520,9 @@ const actions = {
     try {
       const res = await resumeCall(callId, resumeText.trim());
       notify('Session reprise — ouverture du nouvel appel.', 'ok');
-      if (inspector.open && state.inspector === inspector) await actions.openCall(res.callId);
+      await actions.openCall(res.callId);
       void refreshAll({ includeSlow: false });
     } catch (error) {
-      if (!inspector.open || state.inspector !== inspector) return;
       state.inspector.resuming = false;
       state.inspector.resumeError = error.message ?? 'Échec de la reprise.';
       renderInspector(dom.drawerRoot, state, actions);

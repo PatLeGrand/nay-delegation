@@ -10,7 +10,6 @@ function renderStoryChecks(report) {
   const failed = report.status === 'CONTRÔLES';
   return el('div', { class: failed ? 'callout callout--danger' : 'small' },
     el('span', { class: 'small mono muted' }, `Story ${report.storyId}`),
-    !report.feature && report.branch ? el('small', { class: 'mono muted' }, ` · ${report.branch}`) : null,
     failed ? el('strong', null, 'Contrôles en échec') : null,
     report.checks ? el('p', null, `Contrôles : ${report.checks} `,
       report.checksBy === 'nay' ? el('span', { class: 'badge badge-info' }, 'vérifiés par Nay') : null,

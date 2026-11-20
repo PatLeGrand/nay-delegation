@@ -155,9 +155,9 @@ async function httpChecks(t, memory) {
   assert.equal((await f.request('/api/usage?since=invalide')).status, 400);
   assert.deepEqual(JSON.parse((await f.request('/api/features')).text), []);
   const checks = { ts: '2026-11-16T12:00:00Z', storyId: 's1', feature: 'serveur',
-    project: 'nay', branch: 'feature/serveur', status: 'CONTRÔLES', checks: 'lint ÉCHEC', checksBy: 'nay' };
+    project: 'nay', status: 'CONTRÔLES', checks: 'lint ÉCHEC', checksBy: 'nay' };
   await writeFile(join(dirname(f.file), '2026-11-16.1.jsonl'),
-    JSON.stringify({ kind: 'story_end', ...checks, detail: 'rapport complet' }));
+    JSON.stringify({ kind: 'story_end', ...checks, branch: 'feature/serveur', detail: 'rapport complet' }));
   assert.deepEqual(JSON.parse((await f.request('/api/story-checks')).text), [checks]);
   const headers = { Origin: f.origin, 'Content-Type': 'application/json' };
   assert.equal((await f.request('/api/delegation', { method: 'PUT', body: '{}' })).status, 403);

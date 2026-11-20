@@ -187,7 +187,6 @@ html, body {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  max-width: 100%;
 }
 
 /* Navigation rail */
@@ -914,13 +913,12 @@ html, body {
   color: var(--text);
   font: inherit;
   font-size: 12px;
-  max-width: 100%;
   cursor: pointer;
   transition: transform 120ms ease, border-color 140ms ease;
 }
 .relay-capsule:hover { transform: translateY(-1px); border-color: var(--agent-color, var(--accent)); }
 .relay-capsule__glyph { color: var(--agent-color, var(--accent)); font-size: 14px; }
-.relay-capsule__body { display: flex; flex-direction: column; text-align: left; line-height: 1.2; overflow-wrap: anywhere; }
+.relay-capsule__body { display: flex; flex-direction: column; text-align: left; line-height: 1.2; }
 .relay-capsule__sub { font-size: 10.5px; color: var(--text-muted); }
 
 .story-card__verdicts { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
@@ -970,7 +968,7 @@ html, body {
 .chrono-tick:last-child { transform: translateX(-100%); }
 
 .chrono-rows { display: flex; flex-direction: column; gap: 10px; }
-.chrono-group__label { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; overflow-wrap: anywhere; }
+.chrono-group__label { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
 .chrono-lanes { display: flex; flex-direction: column; gap: 4px; }
 .chrono-lane {
   position: relative;
@@ -1041,7 +1039,6 @@ html, body {
 
 .breakdown-list { display: flex; flex-direction: column; gap: 10px; }
 .breakdown-row__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-size: 12.5px; margin-bottom: 4px; }
-.breakdown-row__name { overflow-wrap: anywhere; }
 
 .reliability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .rel-card {
@@ -1424,8 +1421,7 @@ kbd {
   .topbar { padding: 10px 12px; }
   .brand-sub { display: none; }
   .topbar__controls { width: 100%; }
-  .select-top { flex: 1 1 auto; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
-  #filter-project, #filter-feature { flex-basis: 150px; }
+  .select-top { flex: 1; min-width: 0; max-width: none; }
   .nav-rail { padding: 6px 12px; }
   .nav-tab__key { display: none; }
   .stage { padding: 12px 12px 32px; }

@@ -114,12 +114,11 @@ pour injecter une reprise simulée ; `options.callId` identifie le nouvel appel,
 
 ### `GET /api/features`
 
-Fiches de `docs/features/*.md` analysées. `project` contient le nom détecté à la racine de Nay
-au démarrage du serveur ou `null` hors Git.
+Fiches de `docs/features/*.md` analysées :
 
 ```json
 [{
-  "name": "quotas", "title": "quotas", "project": "nay-delegation", "branch": "feature/quotas",
+  "name": "quotas", "title": "quotas", "branch": "feature/quotas",
   "task": "…",
   "developer": "…", "reviewer": "…",
   "verdicts": ["À CORRIGER", "APPROUVÉ"],
@@ -133,12 +132,6 @@ au démarrage du serveur ou `null` hors Git.
 ```
 `state` vaut `en_cours`, `en_relecture`, `attend_decision` ou `fusionnee`. `waitingForUser` est vrai quand le dernier verdict est `APPROUVÉ` et que la décision vaut `en attente` (ou est vide) et que la fiche n'est pas fusionnée.
 La fonctionnalité analysée doit tolérer une fiche incomplète (champs `null`).
-
-### `GET /api/story-checks`
-
-Rapports de contrôles des stories, du plus ancien au plus récent. Chaque rapport reprend `ts`,
-`storyId`, `feature`, `status`, `checks` et `checksBy`, ainsi que `project` et `branch` quand ces
-champs sont présents dans l'événement de fin de story.
 
 ### `GET /api/delegation`
 
@@ -197,7 +190,7 @@ réécrit atomiquement, une ligne par agent ; les écritures de configuration pa
 
 ### `GET /api/events/stream`
 
-Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'événements du jour (`event: agent`, `data: <événement JSON>`), en suivant le changement de date et la rotation. Commentaire `: ping` toutes les 15 s. Les paramètres facultatifs `feature` et `project` se cumulent. `project=-` sélectionne les événements sans projet, y compris ceux qui précèdent l'ajout du champ.
+Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'événements du jour (`event: agent`, `data: <événement JSON>`), en suivant le changement de date et la rotation. Commentaire `: ping` toutes les 15 s. Paramètre facultatif : `feature`.
 
 ## Ce que la page affiche
 
