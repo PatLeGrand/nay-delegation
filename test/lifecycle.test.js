@@ -175,3 +175,23 @@ test('nay wait --feature : ignore les travaux déjà finis et attend celui qui c
   assert.equal(await waitCommand(['--feature', 'autre'], empty.options), WAIT_EXIT.error);
   assert.match(empty.out.stderr, /Aucun travail/);
 });
+
+test('Relecture : story_end écrit même si la story lève une exception, secrets masqués', async (t) => {
+  const events = [];
+  const git = { isRepo: async () => { throw new Error('git introuvable'); } };
+  await assert.rejects(runStory('brief', { storyId: 's', feature: 'f', git, journal: (event) => events.push(event) }), /git introuvable/);
+  assert.deepEqual(events.map((event) => [event.kind, event.status, event.cause]), [['story_start', undefined, undefined], ['story_end', 'BLOQUÉ', 'crash']]);
+  const jobs = build(events.map((event, index) => ({ ...event, ts: at(index) })));
+  assert.deepEqual([state(jobs, 's', 1).state, state(jobs, 's', 1).cause], ['failed', 'crash']);
+
+  const { dir } = await journal(t);
+  const { createJournal } = await import('../src/eventLog.js');
+  const { loadEventConfig } = await import('../src/config.js');
+  const writer = createJournal(dir, loadEventConfig());
+  writer.emit({ kind: 'story_end', storyId: 's', detail: 'Commit impossible : API_KEY=abcdef123456',
+    reviews: [{ agent: 'terra', round: 1, verdict: 'sauté (token=ghp_secretvalue123)' }] });
+  await writer.flush();
+  const jobsText = await (await import('node:fs/promises')).readFile(join(dir, (await (await import('node:fs/promises')).readdir(dir))[0]), 'utf8');
+  assert.doesNotMatch(jobsText, /abcdef123456|ghp_secretvalue123/);
+  assert.match(jobsText, /masqué/);
+});

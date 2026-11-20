@@ -73,7 +73,9 @@ export function maskEvent(event, config) {
   const mask = (value) => maskSecrets(value, config);
   return { ...event,
     ...(event.tool ? { tool: { ...event.tool, target: mask(event.tool.target) } } : {}),
-    ...Object.fromEntries(['text', 'output', 'error'].filter((key) => key in event).map((key) => [key, mask(event[key])])) };
+    // `detail` et les verdicts sautés d'une story reprennent le stderr de git ou d'un CLI.
+    ...(Array.isArray(event.reviews) ? { reviews: event.reviews.map((review) => ({ ...review, verdict: mask(review.verdict) })) } : {}),
+    ...Object.fromEntries(['text', 'output', 'error', 'detail'].filter((key) => key in event).map((key) => [key, mask(event[key])])) };
 }
 
 function matchTool(tools, tool) {

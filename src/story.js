@@ -136,7 +136,15 @@ function withoutMarkers(text = '') {
 export async function runStory(brief, { storyId = newStoryId(), journal = () => {}, ...options } = {}) {
   const { cwd = process.cwd(), feature = null } = options;
   journal({ kind: 'story_start', storyId, feature, cwd });
-  const report = await storyRounds(brief, { ...options, storyId });
+  let report;
+  try {
+    report = await storyRounds(brief, { ...options, storyId });
+  } catch (error) {
+    // Sans story_end, `nay wait` verrait la story finir en `stalled` au lieu de `failed`.
+    journal({ kind: 'story_end', storyId, feature, status: 'BLOQUÉ', code: EXIT.blocked, cause: 'crash',
+      question: false, detail: error.message, dev: null, reviews: [], commits: [] });
+    throw error;
+  }
   journal({ kind: 'story_end', storyId, feature, status: report.status, code: report.code,
     question: report.question, detail: report.detail, dev: report.dev, reviews: report.reviews,
     commits: report.commits });
