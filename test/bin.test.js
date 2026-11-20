@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCommand } from '../src/command.js';
 import { readConfig } from '../src/config.js';
+import { isAgentAvailable, quotaAgentConfig } from '../src/quota/index.js';
 
 function streams(text = '') {
   const captured = { stdout: '', stderr: '', input: Readable.from([text]) };
@@ -134,14 +135,20 @@ test('choose sans --unavailable saute un agent dont le quota réel est sous son 
   const captured = streams();
   const resetsAt = new Date(Date.now() + 3_600_000).toISOString();
   const quotas = {
-    codex: { status: 'ok', windows: [{ label: '5h', remainingPct: 10, resetsAt },
+    codex: { status: 'ok', windows: [{ label: '5h', remainingPct: 3, resetsAt },
       { label: '7j', remainingPct: 90, resetsAt }] },
     agy: { status: 'unknown', reason: 'test' },
     claude: { status: 'unknown', reason: 'test' },
   };
   const code = await runCommand(['choose', 'developpeur'], { ...captured, quotasReader: async () => quotas });
   assert.equal(code, 0);
-  assert.equal(captured.stdout, 'Agent choisi : sonnet\nSauté : sol (indisponible)\n');
+  // Attendu calculé sur la liste configurée : les agents Codex sous leur seuil sont sautés.
+  const config = quotaAgentConfig();
+  const list = readConfig('delegation').developpeur;
+  const chosen = list.find((agent) => isAgentAvailable(agent, quotas, config).available);
+  const skipped = list.slice(0, list.indexOf(chosen));
+  assert.ok(skipped.length, 'la liste configurée doit commencer par un agent Codex');
+  assert.equal(captured.stdout, `Agent choisi : ${chosen}\n${skipped.map((agent) => `Sauté : ${agent} (indisponible)\n`).join('')}`);
 });
 
 test('status résume les appels et les alertes d’un fichier d’événements', async (t) => {
@@ -244,7 +251,7 @@ test('resume conserve le code de sortie et le message des échecs agent', async 
 test('models : catalogue par CLI, agents utilisateurs ou « nouveau », --refresh relit les CLI', async () => {
   const data = { providers: {
     codex: { status: 'ok', fetchedAt: '2026-11-19T12:00:00.000Z', models: [
-      { model: 'gpt-6.1-sol', efforts: ['low'] }, { model: 'gpt-6.2-sol', efforts: ['low', 'high'] }] },
+      { model: 'gpt-6.1-sol', efforts: ['low'] }, { model: 'gpt-test-inutilise', efforts: ['low', 'high'] }] },
     agy: { status: 'error', reason: 'agy absent', fetchedAt: null, stale: false, models: [] },
   } };
   let refreshed = 0;
@@ -253,7 +260,7 @@ test('models : catalogue par CLI, agents utilisateurs ou « nouveau », --refres
   assert.equal(await runCommand(['models'], { ...captured, catalog }), 0);
   assert.match(captured.stdout, /^codex · lu le 2026-11-19 12:00 UTC\n/);
   assert.match(captured.stdout, /gpt-6\.1-sol +low +sol\n/);
-  assert.match(captured.stdout, /gpt-6\.2-sol +low,high +nouveau\n/);
+  assert.match(captured.stdout, /gpt-test-inutilise +low,high +nouveau\n/);
   assert.match(captured.stdout, /agy · erreur : agy absent\n/);
   assert.equal(refreshed, 0);
   assert.equal(await runCommand(['models', '--refresh'], { ...streams(), catalog }), 0);

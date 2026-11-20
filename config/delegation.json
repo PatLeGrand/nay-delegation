@@ -1,21 +1,28 @@
 {
   "explorateur": [
     "luna",
-    "haiku"
+    "hydrogen",
+    "haiku",
+    "gemini-flash"
   ],
   "developpeur": [
-    "sol",
+    "sol-6.2",
     "sonnet",
-    "astra",
     "neon",
-    "opus"
+    "astra",
+    "opus",
+    "argon",
+    "sol"
   ],
   "tachesFaciles": [
     "terra",
-    "hydrogen"
+    "hydrogen",
+    "haiku"
   ],
   "surAppel": [
-    "argon"
+    "argon",
+    "opus",
+    "astra"
   ],
   "relecteur": {
     "parDefaut": [
