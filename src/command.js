@@ -10,6 +10,7 @@ import { formatReport } from './monitor/report.js';
 import { resumeCall } from './resume.js';
 import { COMMIT_INSTRUCTIONS, commitAndRecord, parseCommitRequest } from './commit.js';
 import { formatStory, runStory } from './story.js';
+import { formatTask, parsePlan, planWorkspace, runPlan } from './plan.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
 import { loadEventConfig, readConfig, repositoryRoot } from './config.js';
@@ -29,6 +30,7 @@ const USAGE = `Usage :
       [--skip-permissions]   (agy en écriture, worktree Git lié uniquement)
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
   nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles]
+  nay plan <plan.md> --cwd <projet> [--feature <nom>] [--parallel <n>] [--dev <agent>] [--rounds <n>]
   nay wait <id>... | --feature <nom> [--feature <nom>...] [--since 10m|<ISO>]
       [--until done,failed,needs_input] [--all] [--timeout <min>]
   nay role <rôle> <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--diff <révision>] [--commit]
@@ -108,6 +110,10 @@ function storyJournal() {
   }
 }
 
+function validateDev(dev) {
+  if (dev !== undefined && !Object.hasOwn(readConfig('agents'), dev)) throw new Error(`--dev : agent inconnu : ${dev}`);
+}
+
 // Boucle complète dev → commit → revue → correction, rendue en quelques lignes.
 async function storyCommand(args, { input, output, execute, quotasReader, storyRunner }) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
@@ -116,7 +122,7 @@ async function storyCommand(args, { input, output, execute, quotasReader, storyR
     'skip-baseline': { type: 'boolean', default: false },
     'no-roles': { type: 'boolean', default: false },
   } });
-  if (values.dev !== undefined && !Object.hasOwn(readConfig('agents'), values.dev)) throw new Error(`--dev : agent inconnu : ${values.dev}`);
+  validateDev(values.dev);
   if (values.id !== undefined && !JOB_ID.test(values.id)) throw new Error('--id : 1 à 64 caractères parmi A-Z a-z 0-9 _ . -');
   if (positionals.length !== 1) throw new Error(USAGE);
   const rounds = Number(values.rounds);
@@ -133,6 +139,38 @@ async function storyCommand(args, { input, output, execute, quotasReader, storyR
   await journal.flush();
   output.write(formatStory(report));
   return report.code;
+}
+
+function positiveInteger(value, option) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 1) throw new Error(`${option} doit être un entier ≥ 1`);
+  return number;
+}
+
+async function planCommand(args, { output, execute, quotasReader, storyRunner }) {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
+    cwd: { type: 'string' }, feature: { type: 'string' }, rounds: { type: 'string' },
+    dev: { type: 'string' }, parallel: { type: 'string' },
+  } });
+  if (positionals.length !== 1 || !values.cwd) throw new Error(USAGE);
+  validateDev(values.dev);
+  const maxRounds = values.rounds === undefined ? undefined : positiveInteger(values.rounds, '--rounds');
+  const parallel = positiveInteger(values.parallel ?? readConfig('plan').parallel, '--parallel');
+  const tasks = parsePlan(await readFile(positionals[0], 'utf8'));
+  const cwd = resolve(values.cwd);
+  const workspace = await planWorkspace(cwd, parallel);
+  const isAvailable = await quotaAvailability(quotasReader);
+  const journal = storyJournal();
+  try {
+    const reports = await runPlan(tasks, { parallel, workspace, storyRunner, storyOptions: {
+      execute, dev: values.dev, maxRounds, feature: values.feature ?? basename(cwd), isAvailable,
+      journal: journal.emit,
+    } });
+    for (const report of reports) output.write(`${formatTask(report)}\n`);
+    return reports.every(report => report.code === 0) ? 0 : 1;
+  } finally {
+    await journal.flush();
+  }
 }
 
 async function modelsCommand(args, output, catalog) {
@@ -204,6 +242,7 @@ export async function runCommand(args, { input = process.stdin, output = process
     }
     if (args[0] === 'resume') return await resumeCommand(args.slice(1), { input, output, errorOutput, resumer, committer });
     if (args[0] === 'status') return await statusCommand(args.slice(1), output, now);
+    if (args[0] === 'plan') return await planCommand(args.slice(1), { output, execute, quotasReader, storyRunner });
     if (args[0] === 'story') return await storyCommand(args.slice(1), { input, output, execute, quotasReader, storyRunner });
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
