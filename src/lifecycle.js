@@ -4,7 +4,7 @@ import { readConfig } from './config.js';
 export const STATES = ['accepted', 'working', 'stalled', 'needs_input', 'done', 'failed'];
 export const TERMINAL = ['needs_input', 'done', 'failed'];
 const STORY_CAUSES = { 'AUCUN AGENT': 'no_agent', 'BLOQUÉ': 'blocked', 'DÉFAUTS': 'defects',
-  'CONTRÔLES': 'checks', 'BASE ROUGE': 'red_base' };
+  'CONTRÔLES': 'checks', 'BASE ROUGE': 'red_base', 'DÉSACCORD': 'dispute' };
 const ACTIVE_KINDS = ['tool_start', 'tool_end', 'message'];
 
 export function loadLifecycleConfig() {
@@ -61,9 +61,10 @@ function reduceStory(stories, event, ts) {
   const known = stories[event.storyId] ?? { id: event.storyId, startedAt: ts, lastEventAt: ts, end: null };
   const story = { ...touch(known, ts), feature: known.feature ?? event.feature ?? null };
   if (event.kind === 'story_end') {
-    const { status, code, cause, question, detail, dev, reviews, roles, commits } = event;
+    const { status, code, cause, question, detail, dev, reviews, conformity, roles, commits, tdd, disputes } = event;
     story.end = { status, code, cause: cause ?? STORY_CAUSES[status] ?? null, question: question === true,
-      detail: detail ?? null, dev: dev ?? null, reviews: reviews ?? [], roles: roles ?? [], commits: commits ?? [] };
+      detail: detail ?? null, dev: dev ?? null, reviews: reviews ?? [], conformity: conformity ?? [],
+      roles: roles ?? [], commits: commits ?? [], tdd: tdd ?? [], disputes: disputes ?? [] };
   }
   return { ...stories, [event.storyId]: story };
 }

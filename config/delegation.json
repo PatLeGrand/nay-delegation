@@ -24,6 +24,11 @@
     "opus",
     "astra"
   ],
+  "conformite": [
+    "haiku",
+    "luna",
+    "gemini-flash"
+  ],
   "relecteur": {
     "parDefaut": [
       "hydrogen",

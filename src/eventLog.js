@@ -75,7 +75,12 @@ export function maskEvent(event, config) {
     ...(event.tool ? { tool: { ...event.tool, target: mask(event.tool.target) } } : {}),
     // `detail` et les verdicts sautés d'une story reprennent le stderr de git ou d'un CLI.
     ...(Array.isArray(event.reviews) ? { reviews: event.reviews.map((review) => ({ ...review, verdict: mask(review.verdict) })) } : {}),
+    ...(Array.isArray(event.conformity) ? { conformity: event.conformity.map((entry) => ({ ...entry, verdict: mask(entry.verdict) })) } : {}),
     ...(Array.isArray(event.roles) ? { roles: event.roles.map((role) => ({ ...role, verdict: mask(role.verdict) })) } : {}),
+    ...(Array.isArray(event.tdd) ? { tdd: event.tdd.map((entry) => ({ ...entry, detail: mask(entry.detail) })) } : {}),
+    // Les contestations reprennent le texte du dev.
+    ...(Array.isArray(event.disputes) ? { disputes: event.disputes.map((entry) => ({ ...entry,
+      remark: mask(entry.remark), reason: mask(entry.reason) })) } : {}),
     ...Object.fromEntries(['text', 'output', 'error', 'detail'].filter((key) => key in event).map((key) => [key, mask(event[key])])) };
 }
 

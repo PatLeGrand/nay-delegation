@@ -28,7 +28,7 @@ const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
       [--skip-permissions]   (agy en écriture, worktree Git lié uniquement)
   nay resume <callId> <brief.md|-> [--cwd <dossier>] [--commit]
-  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles]
+  nay story <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--rounds <n>] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles] [--no-conformity]
   nay wait <id>... | --feature <nom> [--feature <nom>...] [--since 10m|<ISO>]
       [--until done,failed,needs_input] [--all] [--timeout <min>]
   nay role <rôle> <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--diff <révision>] [--commit]
@@ -115,6 +115,7 @@ async function storyCommand(args, { input, output, execute, quotasReader, storyR
     id: { type: 'string' }, dev: { type: 'string' },
     'skip-baseline': { type: 'boolean', default: false },
     'no-roles': { type: 'boolean', default: false },
+    'no-conformity': { type: 'boolean', default: false },
   } });
   if (values.dev !== undefined && !Object.hasOwn(readConfig('agents'), values.dev)) throw new Error(`--dev : agent inconnu : ${values.dev}`);
   if (values.id !== undefined && !JOB_ID.test(values.id)) throw new Error('--id : 1 à 64 caractères parmi A-Z a-z 0-9 _ . -');
@@ -129,7 +130,8 @@ async function storyCommand(args, { input, output, execute, quotasReader, storyR
     execute, isAvailable: await quotaAvailability(quotasReader), journal: journal.emit,
     ...(values.id ? { storyId: values.id } : {}), ...(values.dev ? { dev: values.dev } : {}),
     ...(values['skip-baseline'] ? { skipBaseline: true } : {}),
-    ...(values['no-roles'] ? { skipRoles: true } : {}) });
+    ...(values['no-roles'] ? { skipRoles: true } : {}),
+    ...(values['no-conformity'] ? { skipConformity: true } : {}) });
   await journal.flush();
   output.write(formatStory(report));
   return report.code;

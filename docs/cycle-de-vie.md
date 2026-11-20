@@ -48,6 +48,7 @@ arrêté sur une question sans rien modifier.
 | `defects` | `DÉFAUTS` : défauts restants après le dernier tour de revue |
 | `checks` | `CONTRÔLES` : contrôles du projet encore en échec au dernier tour |
 | `red_base` | `BASE ROUGE` : contrôles du projet déjà en échec avant l'appel du dev |
+| `dispute` | `DÉSACCORD` : le dev conteste des remarques (`NAY-DISPUTE`) sans rien modifier ; l'orchestrateur tranche |
 | `crash` | exception inattendue de `nay story` (git, CLI) : `story_end` est quand même écrit |
 
 `call_end.cause` est écrit par Nay ; pour un ancien événement sans `cause`, elle est déduite du
@@ -59,10 +60,14 @@ statut et du message d'erreur.
   (si une reprise automatique suit).
 - Champ commun `storyId` sur les événements des appels lancés par une story.
 - `story_start` : `storyId`, `feature`, `cwd`, `ts`. Sans `callId`.
-- `story_end` : `storyId`, `feature`, `status` (`OK`, `BLOQUÉ`, `DÉFAUTS`, `CONTRÔLES`, `BASE ROUGE`, `AUCUN AGENT`),
-  `code`, `cause`, `question`, `detail`, `dev`, `reviews`, `roles`, `commits`, `checks` (résumé),
-  `checksBy` (`nay`, `dev` ou null), `ts`. `detail` et les
-  verdicts de `reviews` et `roles` sont masqués comme `error` (ils peuvent reprendre un stderr).
+- `story_end` : `storyId`, `feature`, `status` (`OK`, `BLOQUÉ`, `DÉFAUTS`, `CONTRÔLES`, `BASE ROUGE`,
+  `DÉSACCORD`, `AUCUN AGENT`), `code`, `cause`, `question`, `detail`, `dev`, `reviews`,
+  `conformity` (`[{ agent, round, verdict }]`, contrôle de conformité au brief ; `agent` null si
+  l'étape est sautée), `roles`, `commits`, `checks` (résumé), `checksBy` (`nay`, `dev` ou null),
+  `tdd` (`[{ round, commit, verdict: prouvé | non prouvé | erreur, files?, detail? }]`),
+  `disputes` (`[{ round, remark, reason }]`), `ts`. `detail`, les verdicts de `reviews`,
+  `conformity` et `roles`, le `detail` de `tdd` et le texte des `disputes` sont masqués comme
+  `error` (ils peuvent reprendre un stderr ou le texte d'un agent).
 
 ## `nay wait`
 

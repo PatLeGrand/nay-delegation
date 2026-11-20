@@ -11,10 +11,20 @@ export function loadChecksConfig() {
   if (typeof config.projectFile !== 'string' || !config.projectFile
     || !positive.every((key) => Number.isFinite(config[key]) && config[key] > 0)
     || (config.baseline !== undefined && typeof config.baseline !== 'boolean')
-    || (config.env !== undefined && (typeof config.env !== 'object' || config.env === null))) {
+    || (config.env !== undefined && (typeof config.env !== 'object' || config.env === null))
+    || (config.testPatterns !== undefined && !isTextList(config.testPatterns))
+    || (config.tddWorktreesDir !== undefined && !isText(config.tddWorktreesDir))) {
     throw new Error('config/checks.json invalide');
   }
-  return { baseline: true, ...config };
+  return { baseline: true, testPatterns: [], ...config };
+}
+
+function isText(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function isTextList(value) {
+  return Array.isArray(value) && value.every(isText);
 }
 
 // Lit les contrôles déclarés par le projet ; null si le projet n'en déclare pas.
@@ -47,8 +57,9 @@ export async function loadChecks(cwd, config = loadChecksConfig()) {
     if (check.timeoutSec !== undefined && !(Number.isFinite(check.timeoutSec) && check.timeoutSec > 0)) {
       throw new Error(`${where} : « timeoutSec » doit être un nombre positif`);
     }
+    if (check.tdd !== undefined && typeof check.tdd !== 'boolean') throw new Error(`${where} : « tdd » doit être un booléen`);
     return { name: check.name ?? check.command, command: check.command,
-      timeoutSec: check.timeoutSec ?? config.defaultTimeoutSec };
+      timeoutSec: check.timeoutSec ?? config.defaultTimeoutSec, ...(check.tdd ? { tdd: true } : {}) };
   });
 }
 
@@ -96,10 +107,12 @@ function runOne(check, { cwd, env, maxOutputChars, spawnFn }) {
 }
 
 // Tous les contrôles sont lancés, même après un échec : le dev voit tout ce qui est à corriger.
-export async function runChecks(checks, { cwd, config = loadChecksConfig(), spawnFn = spawn } = {}) {
+// `extraEnv` complète l'environnement (ex. NAY_TEST_FILES pour la preuve TDD).
+export async function runChecks(checks, { cwd, config = loadChecksConfig(), spawnFn = spawn, extraEnv = {} } = {}) {
   const results = [];
+  const env = { ...config.env, ...extraEnv };
   for (const check of checks) {
-    results.push(await runOne(check, { cwd, env: config.env ?? {}, maxOutputChars: config.maxOutputChars, spawnFn }));
+    results.push(await runOne(check, { cwd, env, maxOutputChars: config.maxOutputChars, spawnFn }));
   }
   return results;
 }

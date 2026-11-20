@@ -71,6 +71,8 @@ test('Story : état tiré de ses appels puis de story_end', () => {
   assert.deepEqual([defects.state, defects.cause], ['failed', 'defects']);
   const redBase = state(build([story('story_start', 0), story('story_end', 2, { status: 'BASE ROUGE', code: 1 })]), 's1', 2);
   assert.deepEqual([redBase.state, redBase.cause], ['failed', 'red_base']);
+  const dispute = state(build([story('story_start', 0), story('story_end', 2, { status: 'DÉSACCORD', code: 1 })]), 's1', 2);
+  assert.deepEqual([dispute.state, dispute.cause], ['failed', 'dispute']);
   assert.equal(state(build([...working, story('story_end', 90, { status: 'BLOQUÉ', code: 1, question: true })]), 's1', 90).state, 'needs_input');
   assert.deepEqual(featureJobs(ok, 'f'), ['s1']);
 });
@@ -192,10 +194,13 @@ test('Relecture : story_end écrit même si la story lève une exception, secret
   const { loadEventConfig } = await import('../src/config.js');
   const writer = createJournal(dir, loadEventConfig());
   writer.emit({ kind: 'story_end', storyId: 's', detail: 'Commit impossible : API_KEY=abcdef123456',
-    reviews: [{ agent: 'terra', round: 1, verdict: 'sauté (token=ghp_secretvalue123)' }] });
+    reviews: [{ agent: 'terra', round: 1, verdict: 'sauté (token=ghp_secretvalue123)' }],
+    conformity: [{ agent: 'haiku', round: 1, verdict: 'sauté (password=conformite987)' }],
+    tdd: [{ round: 1, verdict: 'erreur', detail: 'secret=tddsecret456' }],
+    disputes: [{ round: 1, remark: 'api_key=remarque321', reason: 'token=raison654' }] });
   await writer.flush();
   const jobsText = await (await import('node:fs/promises')).readFile(join(dir, (await (await import('node:fs/promises')).readdir(dir))[0]), 'utf8');
-  assert.doesNotMatch(jobsText, /abcdef123456|ghp_secretvalue123/);
+  assert.doesNotMatch(jobsText, /abcdef123456|ghp_secretvalue123|conformite987|tddsecret456|remarque321|raison654/);
   assert.match(jobsText, /masqué/);
 });
 

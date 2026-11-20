@@ -23,7 +23,8 @@ Effort moyen pour tous, sauf Gemini 3.8 Flash (High). Un modèle ne relit jamais
 L’ordre des agents pour chaque rôle est défini dans `config/delegation.json`.
 La relecture utilise `relecteur.selonAuteur` si une liste existe pour l’auteur,
 sinon `relecteur.parDefaut`, en excluant toujours l’auteur. Les rôles sont
-`explorateur`, `developpeur`, `tachesFaciles`, `surAppel` et `relecteur`.
+`explorateur`, `developpeur`, `tachesFaciles`, `surAppel`, `conformite` (contrôle de conformité au
+brief dans `nay story`) et `relecteur`.
 
 ```bash
 node bin/nay.js check-config
@@ -142,7 +143,7 @@ agent et ne consomment aucun jeton.
 ## Enchaîner dev et revue (`nay story`)
 
 ```bash
-node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles]
+node bin/nay.js story brief.md --cwd /chemin/du/projet [--feature <nom>] [--rounds 2] [--id <storyId>] [--dev <agent>] [--skip-baseline] [--no-roles] [--no-conformity]
 ```
 
 Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier :
@@ -155,13 +156,56 @@ Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier 
    suivant ; s'il a déjà modifié des fichiers, Nay s'arrête.
 3. Dans un dépôt git, committe les fichiers annoncés par le dev (voir `--commit`).
    Hors dépôt git, pas de commit : le relecteur lit les fichiers modifiés.
-4. Choisit un `relecteur` qui n'est pas l'auteur, en lecture seule ; il finit par
-   `NAY-VERDICT: PASS` ou `CHANGES`. Un relecteur en échec cède la place au suivant.
-5. Après un `PASS`, lance chaque rôle perso lecture seule réglé sur `toujours` (hors auteur du code ;
+4. **Conformité au brief** (premier temps de la relecture) : un modèle du rôle `conformite`, hors
+   auteur et en lecture seule, répond seulement à « le changement fait-il ce que demande le brief,
+   ni plus ni moins ? » (`NAY-VERDICT: PASS` ou `CHANGES`). `CHANGES` renvoie au dev comme une
+   relecture (un tour), sans appeler le relecteur qualité. Rôle absent de la délégation ou aucun
+   modèle disponible : étape sautée et notée, sans bloquer. `--no-conformity` la retire.
+5. **Qualité du code** (second temps) : choisit un `relecteur` qui n'est pas l'auteur, en lecture
+   seule ; il finit par `NAY-VERDICT: PASS` ou `CHANGES`. Un relecteur en échec cède la place au suivant.
+6. Après un `PASS`, lance chaque rôle perso lecture seule réglé sur `toujours` (hors auteur du code ;
    un rôle sans modèle disponible est sauté sans bloquer ; les rôles en écriture ne sont jamais
    lancés par la story ; `--no-roles` désactive cette étape).
-6. Si `CHANGES` (relecteur ou rôle perso) : reprend la session du dev avec les constats, recommite,
-   nouvelle relecture complète, jusqu'à `--rounds` tours (2 par défaut).
+7. Si `CHANGES` (conformité, relecteur ou rôle perso) : reprend la session du dev avec les constats,
+   recommite, nouvelle relecture complète, jusqu'à `--rounds` tours (2 par défaut).
+
+### Contestation par le dev (`NAY-DISPUTE`)
+
+Dans la consigne de correction d'une relecture (conformité, qualité, rôle perso ; pas pour des
+contrôles en échec), le dev peut refuser une remarque qu'il juge fausse au lieu de la corriger :
+
+```text
+NAY-DISPUTE: <remarque contestée> — <raison>
+```
+
+- Contestations **sans aucun changement** : la story s'arrête en `DÉSACCORD` (code 1, cause
+  `dispute`) et affiche les remarques contestées et leurs raisons sous « Désaccords à trancher : » :
+  c'est à l'orchestrateur de décider.
+- Contestations **avec des changements** : la boucle continue ; le relecteur suivant reçoit
+  « Le dev conteste : … ; tranche » dans son prompt. La sortie ajoute une ligne `Contestations :`.
+
+### TDD vérifié
+
+Quand le dev a committé et que le commit ajoute ou modifie des fichiers de test (motifs
+`testPatterns` de `config/checks.json`), Nay vérifie que ces tests **échouent sans le changement** :
+il crée un worktree git détaché sur le commit parent sous `.nay/worktrees` (`tddWorktreesDir`), y
+copie les nouveaux tests du commit, lance le contrôle du projet marqué `"tdd": true`, puis supprime
+le worktree (même en cas d'erreur). Sans contrôle marqué `tdd`, l'étape est sautée. Elle a lieu
+après les contrôles réussis, avant la conformité.
+
+```json
+{ "checks": [ { "name": "tests", "command": "pytest -q $NAY_TEST_FILES", "tdd": true } ] }
+```
+
+- La commande reçoit `NAY_TEST_FILES` (nouveaux tests, séparés par des espaces, relatifs au dossier
+  de la story) ; elle peut l'ignorer et lancer toute la suite.
+- Tests rouges sur le parent : `TDD : tests rouges avant, verts après`. Tests déjà verts : non
+  bloquant, mais signalé au relecteur qualité (« les nouveaux tests passent sans le changement :
+  ils ne prouvent peut-être rien ») et affiché `TDD : non prouvé`. Erreur (worktree impossible…) :
+  `TDD : non vérifié (…)`, sans bloquer.
+- Le worktree ne contient que les fichiers suivis : les dépendances non versionnées
+  (`node_modules`, environnement virtuel) n'y sont pas. Ajouter `.nay/worktrees/` au `.gitignore`
+  du projet.
 
 ### Contrôles lancés par Nay
 
@@ -194,6 +238,8 @@ Sortie courte, conçue pour l'orchestrateur :
 Story : 3f2a9c1d
 Dev : sonnet (sauté : sol — quota épuisé)
 Commit : 3f2a1c9 feat(providers): …
+TDD : tests rouges avant, verts après (tour 1)
+Conformité : haiku PASS (tour 1)
 Revue : hydrogen PASS (tour 1)
 Contrôles : ruff ok · mypy ok · pytest 42 passés
 Statut : OK
@@ -206,8 +252,8 @@ agy en lecture seule (`--mode plan`) n'exécute pas les commandes shell : Nay aj
 une consigne « sans shell », et si la session s'arrête quand même sur une commande, l'erreur
 le dit (« Shell bloqué en mode plan ») et Nay reprend une fois la session sans shell.
 
-Code de sortie : `0` revue PASS, `1` bloqué ou défauts restants (constats du relecteur
-affichés), `2` aucun agent disponible. `--feature` vaut par défaut le nom du dossier.
+Code de sortie : `0` revue PASS, `1` bloqué, défauts restants (constats du relecteur
+affichés) ou désaccord à trancher, `2` aucun agent disponible. `--feature` vaut par défaut le nom du dossier.
 Si le dev s'arrête sur une question sans rien modifier, la story s'arrête (`BLOQUÉ`) et
 affiche la question.
 
