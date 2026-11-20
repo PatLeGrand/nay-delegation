@@ -17,6 +17,7 @@ import { startServer } from './server/app.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from './quota/index.js';
 import { remainingPct } from './quota/common.js';
 import { runUpdate } from './update.js';
+import { createCatalog } from './models/catalog.js';
 
 const USAGE = `Usage :
   nay run <agent> <brief.md|-> [--read-only] [--feature <nom>] [--role <rôle>] [--cwd <dossier>] [--commit] [--effort low|medium|high|xhigh]
@@ -26,6 +27,7 @@ const USAGE = `Usage :
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
   nay check-config
   nay quota
+  nay models [--refresh]   (modèles proposés par chaque CLI ; sans --refresh : dernier catalogue connu)
   nay ui
   nay update   (main propre → git pull → check-config → redémarre le service nay-ui)
   nay status [--file <events.jsonl>] [--feature <nom>]`;
@@ -101,6 +103,31 @@ async function storyCommand(args, { input, output, execute, quotasReader, storyR
   return report.code;
 }
 
+async function modelsCommand(args, output, catalog) {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true,
+    options: { refresh: { type: 'boolean', default: false } } });
+  if (positionals.length) throw new Error(USAGE);
+  const data = values.refresh ? await catalog.refresh() : await catalog.get();
+  output.write(formatCatalog(data, readConfig('agents')));
+  return Object.values(data.providers).some((provider) => provider.status === 'ok') ? 0 : 1;
+}
+
+// Les modèles qu'aucun agent n'utilise sont marqués « nouveau » : ce sont les candidats à ajouter.
+export function formatCatalog(data, agents) {
+  const lines = [];
+  for (const [cli, provider] of Object.entries(data.providers)) {
+    const when = provider.fetchedAt ? ` · lu le ${provider.fetchedAt.slice(0, 16).replace('T', ' ')} UTC` : '';
+    lines.push(provider.status === 'ok' ? `${cli}${when}`
+      : `${cli} · erreur : ${provider.reason}${provider.stale ? ` (dernier catalogue${when.replace(' · lu', ', lu')})` : ''}`);
+    for (const entry of provider.models) {
+      const users = Object.entries(agents).filter(([, agent]) => agent.cli === cli && agent.model === entry.model)
+        .map(([name]) => name);
+      lines.push(`  ${entry.model.padEnd(32)} ${(entry.efforts.join(',') || '-').padEnd(24)} ${users.join(', ') || 'nouveau'}`);
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 function checkConfigCommand(args, output) {
   if (args.length) throw new Error(USAGE);
   const errors = validateDelegation(readConfig('delegation'), Object.keys(readConfig('agents')));
@@ -118,7 +145,8 @@ async function readStdin(stream) {
 
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
-  committer = commitAndRecord, storyRunner = runStory, updater = runUpdate } = {}) {
+  committer = commitAndRecord, storyRunner = runStory, updater = runUpdate,
+  catalog = createCatalog({ root: repositoryRoot() }) } = {}) {
   try {
     if (args[0] === 'update') {
       if (args.length !== 1) throw new Error(USAGE);
@@ -140,6 +168,7 @@ export async function runCommand(args, { input = process.stdin, output = process
     if (args[0] === 'story') return await storyCommand(args.slice(1), { input, output, execute, quotasReader, storyRunner });
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
     if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
+    if (args[0] === 'models') return await modelsCommand(args.slice(1), output, catalog);
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
       'read-only': { type: 'boolean', default: false },
       feature: { type: 'string' }, role: { type: 'string' }, cwd: { type: 'string' },

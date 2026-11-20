@@ -24,6 +24,10 @@ export const API = {
   status: '/api/status',
   features: '/api/features',
   delegation: '/api/delegation',
+  models: '/api/models',
+  modelsRefresh: '/api/models/refresh',
+  agents: '/api/agents',
+  agent: (name) => `/api/agents/${encodeURIComponent(name)}`,
   stream: '/api/events/stream',
   call: (id) => `/api/calls/${encodeURIComponent(id)}`,
 };
@@ -34,6 +38,7 @@ export const VIEWS = [
   { id: 'chronographe', key: '3', label: 'Chronographe', subtitle: 'Frise du jour, spectre 14 jours et fiabilité' },
   { id: 'aiguillage', key: '4', label: 'Aiguillage', subtitle: 'Cascade de délégation par rôle et disponibilité' },
   { id: 'laboratoire', key: '5', label: 'Laboratoire', subtitle: 'Fonctionnalités en maquette et contrats d’API proposés' },
+  { id: 'hangar', key: '6', label: 'Hangar', subtitle: 'Flotte d’agents et modèles proposés par chaque CLI' },
 ];
 export const DEFAULT_VIEW = 'orbite';
 
@@ -84,6 +89,12 @@ export const ROLE_LABELS = {
   surAppel: 'Sur appel',
   relecteur: 'Relecteur',
 };
+
+export const PROVIDER_LABELS = { codex: 'Codex', agy: 'Antigravity (agy)', claude: 'Claude' };
+export const AGENT_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+export const AGENT_DEFAULT_TIMEOUT_MIN = 30;
+export const AGENT_MAX_TIMEOUT_MIN = 600;
+export const MODEL_VENDOR_PREFIXES = ['gpt', 'gemini', 'claude'];
 
 export const DELEGATION_SIMPLE_ROLES = ['explorateur', 'developpeur', 'tachesFaciles', 'surAppel'];
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { findResumableCall, resumeCall } from '../resume.js';
 import { createServer as httpServer } from 'node:http';
-import { readConfig, repositoryRoot } from '../config.js';
+import { loadModelsConfig, readConfig, repositoryRoot } from '../config.js';
 import { readUsage } from '../usageLog.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from '../quota/index.js';
 import { loadMonitorConfig } from '../monitor/config.js';
@@ -9,7 +9,9 @@ import { aggregateUsage } from './usage.js';
 import { readStatus } from './status.js';
 import { readCall } from './calls.js';
 import { readFeatures } from './features.js';
-import { readDelegation, writeDelegation } from './delegation.js';
+import { readDelegation, readJson, writeDelegation } from './delegation.js';
+import { addAgent, deleteAgent, listAgents, readModels, updateAgent } from './agents.js';
+import { createCatalog } from '../models/catalog.js';
 import { serveStatic } from './static.js';
 import { startStream } from './stream.js';
 import { safePath, httpError } from './paths.js';
@@ -43,7 +45,7 @@ function requestPath(request) {
 }
 
 async function readApi(pathname, params, context) {
-  const { root, dataRoot, config, now, quotasReader, agentsConfig, monitorConfig, usagePath, todayFile } = context;
+  const { root, dataRoot, config, now, quotasReader, monitorConfig, usagePath, todayFile, catalog } = context;
   const feature = params.has('feature') ? params.get('feature') : undefined;
   if (pathname === '/api/usage') {
     const since = params.has('since') ? params.get('since') : undefined;
@@ -52,7 +54,7 @@ async function readApi(pathname, params, context) {
       { feature, since, recent: config.recentCalls });
   }
   if (pathname === '/api/quota') {
-    const providers = await quotasReader();
+    const [providers, agentsConfig] = await Promise.all([quotasReader(), context.agentsConfig()]);
     return { providers, agents: Object.entries(agentsConfig.agents).map(([name, agent]) =>
       ({ name, provider: agent.cli, ...isAgentAvailable(name, providers, agentsConfig) })) };
   }
@@ -64,6 +66,8 @@ async function readApi(pathname, params, context) {
   }
   if (pathname === '/api/features') return readFeatures(root, config.featuresDir);
   if (pathname === '/api/delegation') return readDelegation(root);
+  if (pathname === '/api/agents') return listAgents(root);
+  if (pathname === '/api/models') return readModels(root, catalog);
   throw httpError(404, 'Route inconnue');
 }
 
@@ -74,13 +78,50 @@ function checkWriteHeaders(request) {
   }
 }
 
+// Les écritures de config passent une à une : la suppression d'un agent relit la délégation
+// sans qu'un PUT /api/delegation simultané puisse s'intercaler.
+function serialized(context, task) {
+  const next = context.writes.then(task, task);
+  context.writes = next.catch(() => {});
+  return next;
+}
+
+async function writeApi(request, pathname, context) {
+  const { root, config, catalog, modelsConfig } = context;
+  const body = () => readBody(request, config.maxBodyBytes);
+  const agentMatch = /^\/api\/agents\/([^/]+)$/.exec(pathname);
+  const options = { catalog, config: modelsConfig };
+  if (pathname === '/api/delegation' && request.method === 'PUT') {
+    const delegation = await body();
+    return [200, await serialized(context, () => writeDelegation(root, delegation))];
+  }
+  if (pathname === '/api/models/refresh' && request.method === 'POST') {
+    await catalog.refresh();
+    return [200, await readModels(root, catalog)];
+  }
+  if (pathname === '/api/agents' && request.method === 'POST') {
+    const agent = await body();
+    return [201, await serialized(context, () => addAgent(root, agent, options))];
+  }
+  if (agentMatch && request.method === 'PUT') {
+    const agent = await body();
+    return [200, await serialized(context, () => updateAgent(root, agentMatch[1], agent, options))];
+  }
+  if (agentMatch && request.method === 'DELETE') {
+    return [200, await serialized(context, () => deleteAgent(root, agentMatch[1]))];
+  }
+  return null;
+}
+
 async function route(request, response, context) {
   const { root, config, todayFile, streams } = context;
   const pathname = requestPath(request);
   const params = new URL(request.url, `http://${request.headers.host}`).searchParams;
-  if (pathname === '/api/delegation' && request.method === 'PUT') {
+  if (request.method !== 'GET' && pathname.startsWith('/api/') && !pathname.endsWith('/resume')) {
     checkWriteHeaders(request);
-    return json(response, 200, await writeDelegation(root, await readBody(request, config.maxBodyBytes)));
+    const result = await writeApi(request, pathname, context);
+    if (result) return json(response, ...result);
+    throw httpError(405, 'Méthode interdite');
   }
   const resumeMatch = /^\/api\/calls\/([^/]+)\/resume$/.exec(pathname);
   if (resumeMatch && request.method === 'POST') {
@@ -100,13 +141,18 @@ async function route(request, response, context) {
 }
 
 export function createServer({ root = repositoryRoot(), config = readConfig('ui'), now = Date.now,
-  dataRoot = root, resumer = resumeCall, quotasReader = readQuotas, agentsConfig = quotaAgentConfig(),
-  monitorConfig = loadMonitorConfig(), usagePath = readConfig('engine').usageLogPath } = {}) {
+  dataRoot = root, resumer = resumeCall, quotasReader = readQuotas, agentsConfig,
+  monitorConfig = loadMonitorConfig(), usagePath = readConfig('engine').usageLogPath,
+  modelsConfig = loadModelsConfig(), catalog = createCatalog({ root: dataRoot, config: modelsConfig }) } = {}) {
   if (config.host !== '127.0.0.1') throw new Error('Le serveur doit écouter sur 127.0.0.1');
   const todayFile = () => safePath(dataRoot,
     `${monitorConfig.eventsDir}/${new Date(now()).toISOString().slice(0, 10)}.jsonl`);
   const streams = new Set();
-  const context = { root, dataRoot, config, now, quotasReader, agentsConfig, monitorConfig, usagePath, todayFile, streams, resumer, resuming: new Set() };
+  // Relu à chaque requête : un agent ajouté depuis l'interface apparaît sans redémarrage.
+  const readAgentsConfig = agentsConfig ? async () => agentsConfig
+    : async () => ({ ...quotaAgentConfig(), agents: await readJson(root, 'config/agents.json') });
+  const context = { root, dataRoot, config, now, quotasReader, agentsConfig: readAgentsConfig, monitorConfig,
+    usagePath, todayFile, streams, resumer, resuming: new Set(), catalog, modelsConfig, writes: Promise.resolve() };
   const server = httpServer(async (request, response) => {
     try {
       const port = server.address()?.port;
@@ -121,6 +167,7 @@ export function createServer({ root = repositoryRoot(), config = readConfig('ui'
       request.resume();
     }
   });
+  server.catalog = catalog;
   const close = server.close.bind(server);
   server.close = (callback) => { for (const response of streams) response.destroy(); return close(callback); };
   return server;
@@ -134,6 +181,8 @@ export async function startServer({ root, output = process.stdout, ...options } 
     server.listen(config.port, config.host, () => { server.off('error', reject); resolve(); });
   });
   output.write(`Interface Nay : http://${config.host}:${server.address().port}\n`);
+  // Catalogue relu à chaque démarrage, sans retarder l'ouverture de l'interface.
+  server.catalog?.refresh().catch((error) => process.stderr.write(`Catalogue des modèles : ${error.message}\n`));
   return server;
 }
 

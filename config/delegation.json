@@ -1,13 +1,39 @@
 {
-  "explorateur": ["luna", "haiku"],
-  "developpeur": ["sol", "sonnet"],
-  "tachesFaciles": ["terra", "hydrogen"],
-  "surAppel": ["argon"],
+  "explorateur": [
+    "luna",
+    "haiku"
+  ],
+  "developpeur": [
+    "sol",
+    "sonnet",
+    "astra",
+    "neon",
+    "opus"
+  ],
+  "tachesFaciles": [
+    "terra",
+    "hydrogen"
+  ],
+  "surAppel": [
+    "argon"
+  ],
   "relecteur": {
-    "parDefaut": ["hydrogen", "terra", "sonnet", "gemini-flash"],
+    "parDefaut": [
+      "hydrogen",
+      "terra",
+      "sonnet",
+      "gemini-flash"
+    ],
     "selonAuteur": {
-      "hydrogen": ["terra", "gemini-flash"],
-      "terra": ["hydrogen", "sonnet", "gemini-flash"]
+      "hydrogen": [
+        "terra",
+        "gemini-flash"
+      ],
+      "terra": [
+        "hydrogen",
+        "sonnet",
+        "gemini-flash"
+      ]
     }
   }
 }

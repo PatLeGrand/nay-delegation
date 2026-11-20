@@ -107,10 +107,11 @@ test('L’auteur est aussi exclu de la liste par défaut', () => {
 
 test('L’ordre injecté change le choix sans modifier la configuration sur disque', () => {
   const delegation = loadDelegation();
+  const configured = [...delegation.developpeur];
   delegation.developpeur.reverse();
-  assert.equal(chooseAgent('developpeur', { delegation }).agent, 'sonnet');
-  assert.deepEqual(candidatesFor('developpeur', { delegation }), ['sonnet', 'sol']);
-  assert.equal(chooseAgent('developpeur').agent, 'sol');
+  assert.equal(chooseAgent('developpeur', { delegation }).agent, configured.at(-1));
+  assert.deepEqual(candidatesFor('developpeur', { delegation }), [...configured].reverse());
+  assert.equal(chooseAgent('developpeur').agent, configured[0]);
 });
 
 test('Validation : configuration valide, agent inconnu, liste vide et doublon', () => {

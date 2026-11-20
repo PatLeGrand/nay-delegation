@@ -5,8 +5,8 @@ import {
   REFRESH_MS, SSE_RECONNECT_MS, THEME_KEY, THEMES, VIEWS,
 } from './js/config.js';
 import {
-  buildQuery, fetchCall, fetchDelegation, fetchFeatures, fetchQuota,
-  fetchStatus, fetchUsage, resumeCall, saveDelegation,
+  buildQuery, createAgent, deleteAgent, fetchAgents, fetchCall, fetchDelegation, fetchFeatures,
+  fetchModels, fetchQuota, fetchStatus, fetchUsage, refreshModels, resumeCall, saveDelegation, updateAgent,
 } from './js/api.js';
 import { el, mount } from './js/dom.js';
 import { computeSinceIso, formatDuration } from './js/format.js';
@@ -16,6 +16,7 @@ import { renderChronographe } from './js/views/chronographe.js';
 import { renderAiguillage } from './js/views/aiguillage.js';
 import { renderLaboratoire } from './js/views/laboratoire.js';
 import { renderInspector } from './js/views/inspector.js';
+import { newAgentForm, renderHangar } from './js/views/hangar.js';
 
 const RENDERERS = {
   orbite: renderOrbite,
@@ -23,6 +24,7 @@ const RENDERERS = {
   chronographe: renderChronographe,
   aiguillage: renderAiguillage,
   laboratoire: renderLaboratoire,
+  hangar: renderHangar,
 };
 
 const state = {
@@ -41,6 +43,8 @@ const state = {
   status: null,
   features: [],
   delegation: null,
+  agents: null,
+  models: null,
   allFeaturesList: [],
   apiErrors: {},
 
@@ -53,6 +57,17 @@ const state = {
   delegationDirty: false,
   delegationSaving: false,
   delegationErrors: [],
+
+  // Hangar : création et réglage des agents
+  hangar: {
+    adding: null,
+    form: null,
+    edits: {},
+    busy: false,
+    errors: [],
+    onlyNew: false,
+    refreshing: false,
+  },
 
   // Boîte noire (inspecteur d'appel)
   inspector: {
@@ -182,8 +197,29 @@ function render() {
     ? el('div', { class: 'callout callout--warn api-banner', role: 'status' },
       `Certaines données sont temporairement indisponibles : ${Object.values(state.apiErrors).join(' · ')}`)
     : null;
+  const focus = captureFocus();
   mount(dom.stage, errorBanner, renderer(state, actions));
+  restoreFocus(focus);
   renderInspector(dom.drawerRoot, state, actions);
+}
+
+// Chaque rendu reconstruit la vue : on rend le focus (et le curseur) au champ marqué
+// data-focus-key pour pouvoir saisir pendant les rafraîchissements périodiques.
+function captureFocus() {
+  const active = document.activeElement;
+  const key = active?.dataset?.focusKey;
+  if (!key || !dom.stage.contains(active)) return null;
+  let selection = null;
+  try { selection = [active.selectionStart, active.selectionEnd]; } catch { /* champ sans sélection */ }
+  return { key, selection };
+}
+
+function restoreFocus(focus) {
+  if (!focus) return;
+  const target = [...dom.stage.querySelectorAll('[data-focus-key]')].find((node) => node.dataset.focusKey === focus.key);
+  if (!target) return;
+  target.focus();
+  try { if (focus.selection?.[0] != null) target.setSelectionRange(...focus.selection); } catch { /* idem */ }
 }
 
 async function refreshAll({ includeSlow = true } = {}) {
@@ -197,6 +233,8 @@ async function refreshAll({ includeSlow = true } = {}) {
     tasks.push(['features', fetchFeatures()]);
     tasks.push(['delegation', fetchDelegation()]);
     tasks.push(['quota', fetchQuota()]);
+    tasks.push(['agents', fetchAgents()]);
+    tasks.push(['models', fetchModels()]);
   }
 
   let renderQueued = false;
@@ -308,6 +346,19 @@ function scheduleInspectorRefresh(callId) {
       scheduleInspectorRefresh(callId);
     } catch { /* ignore */ }
   }, CALL_LIVE_REFRESH_MS);
+}
+
+// Après un changement de flotte, tout ce qui liste les agents est relu.
+async function reloadFleet() {
+  const [agents, models, delegation, quota] = await Promise.allSettled(
+    [fetchAgents(), fetchModels(), fetchDelegation(), fetchQuota()]);
+  if (agents.status === 'fulfilled') state.agents = agents.value;
+  if (models.status === 'fulfilled') state.models = models.value;
+  if (quota.status === 'fulfilled') state.quota = quota.value;
+  if (delegation.status === 'fulfilled') {
+    state.delegation = delegation.value;
+    if (!state.delegationDirty) state.delegationDraft = JSON.parse(JSON.stringify(delegation.value.delegation));
+  }
 }
 
 const actions = {
@@ -425,6 +476,112 @@ const actions = {
       state.delegationSaving = false;
       state.delegationErrors = error.errors?.length ? error.errors : [error.message ?? 'Erreur d’enregistrement'];
       notify('Validation de la délégation refusée.', 'danger');
+      render();
+    }
+  },
+
+  setHangarOnlyNew(onlyNew) {
+    state.hangar.onlyNew = onlyNew;
+    render();
+  },
+
+  async refreshCatalog() {
+    if (state.hangar.refreshing) return;
+    state.hangar.refreshing = true;
+    render();
+    try {
+      state.models = await refreshModels();
+      const failed = Object.entries(state.models.providers).filter(([, p]) => p.status !== 'ok').map(([cli]) => cli);
+      notify(failed.length ? `Catalogue relu, sauf : ${failed.join(', ')}.` : 'Catalogues des CLI relus.', failed.length ? 'danger' : 'ok');
+    } catch (error) {
+      notify(error.message ?? 'Lecture du catalogue impossible.', 'danger');
+    } finally {
+      state.hangar.refreshing = false;
+      render();
+    }
+  },
+
+  openNewAgent(cli, entry) {
+    state.hangar.adding = `${cli}:${entry.model}`;
+    state.hangar.form = newAgentForm(cli, entry, Object.keys(state.agents?.agents ?? {}));
+    state.hangar.errors = [];
+    render();
+    dom.stage.querySelector('[data-focus-key="new:name"]')?.select();
+  },
+
+  editNewAgent(patch) {
+    state.hangar.form = { ...state.hangar.form, ...patch };
+  },
+
+  closeNewAgent() {
+    state.hangar.adding = null;
+    state.hangar.form = null;
+    state.hangar.errors = [];
+    render();
+  },
+
+  async submitNewAgent() {
+    const form = state.hangar.form;
+    if (!form || state.hangar.busy) return;
+    state.hangar.busy = true;
+    state.hangar.errors = [];
+    render();
+    try {
+      const { name, cli, model, effort, timeoutMin } = form;
+      await createAgent({ name, cli, model, effort, timeoutMin });
+      state.hangar.adding = null;
+      state.hangar.form = null;
+      notify(`Agent ${name} ajouté : donnez-lui un rôle dans l’Aiguillage.`, 'ok');
+      await reloadFleet();
+    } catch (error) {
+      state.hangar.errors = error.errors?.length ? error.errors : [error.message ?? 'Ajout impossible'];
+    } finally {
+      state.hangar.busy = false;
+      render();
+    }
+  },
+
+  editAgent(name, patch) {
+    state.hangar.edits[name] = { ...state.hangar.edits[name], ...patch };
+    render();
+  },
+
+  cancelAgentEdit(name) {
+    delete state.hangar.edits[name];
+    render();
+  },
+
+  async saveAgent(name) {
+    const agent = state.agents?.agents?.[name];
+    if (!agent || state.hangar.busy) return;
+    state.hangar.busy = true;
+    render();
+    try {
+      await updateAgent(name, { ...agent, ...state.hangar.edits[name] });
+      delete state.hangar.edits[name];
+      notify(`Agent ${name} enregistré.`, 'ok');
+      await reloadFleet();
+    } catch (error) {
+      notify(error.errors?.length ? error.errors.join(' · ') : (error.message ?? 'Enregistrement impossible'), 'danger');
+    } finally {
+      state.hangar.busy = false;
+      render();
+    }
+  },
+
+  async removeAgent(name) {
+    if (state.hangar.busy || !window.confirm(`Retirer ${name} de config/agents.json ?`)) return;
+    state.hangar.busy = true;
+    render();
+    try {
+      await deleteAgent(name);
+      delete state.hangar.edits[name];
+      notify(`Agent ${name} retiré de la flotte.`, 'ok');
+      await reloadFleet();
+    } catch (error) {
+      notify(error.status === 409 ? `${name} est encore cité dans l’aiguillage.` : (error.message ?? 'Suppression impossible'), 'danger');
+    } finally {
+      state.hangar.busy = false;
       render();
     }
   },

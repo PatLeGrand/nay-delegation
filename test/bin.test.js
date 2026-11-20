@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCommand } from '../src/command.js';
+import { readConfig } from '../src/config.js';
 
 function streams(text = '') {
   const captured = { stdout: '', stderr: '', input: Readable.from([text]) };
@@ -77,10 +78,11 @@ test('choose affiche le choix et les raisons sans appeler d’agent', async () =
 
 test('choose renvoie 1 et explique pourquoi aucun agent ne convient', async () => {
   const captured = streams();
-  const code = await runCommand(['choose', 'developpeur', '--unavailable', 'sol,sonnet'], captured);
+  const developers = readConfig('delegation').developpeur;
+  const code = await runCommand(['choose', 'developpeur', '--unavailable', developers.join(',')], captured);
   assert.equal(code, 1);
   assert.equal(captured.stdout, '');
-  assert.match(captured.stderr, /sol \(indisponible\), sonnet \(indisponible\)/);
+  assert.match(captured.stderr, new RegExp(developers.map((name) => `${name} \\(indisponible\\)`).join(', ')));
 });
 
 test('choose relecteur sans auteur renvoie 1 sans choisir d’agent', async () => {
@@ -237,4 +239,25 @@ test('resume conserve le code de sortie et le message des échecs agent', async 
   }), 1);
   assert.match(captured.stdout, /callId : appel/);
   assert.match(captured.stderr, /Délai maximal dépassé/);
+});
+
+test('models : catalogue par CLI, agents utilisateurs ou « nouveau », --refresh relit les CLI', async () => {
+  const data = { providers: {
+    codex: { status: 'ok', fetchedAt: '2026-11-19T12:00:00.000Z', models: [
+      { model: 'gpt-6.1-sol', efforts: ['low'] }, { model: 'gpt-6.2-sol', efforts: ['low', 'high'] }] },
+    agy: { status: 'error', reason: 'agy absent', fetchedAt: null, stale: false, models: [] },
+  } };
+  let refreshed = 0;
+  const catalog = { get: async () => data, refresh: async () => { refreshed++; return data; } };
+  const captured = streams();
+  assert.equal(await runCommand(['models'], { ...captured, catalog }), 0);
+  assert.match(captured.stdout, /^codex · lu le 2026-11-19 12:00 UTC\n/);
+  assert.match(captured.stdout, /gpt-6\.1-sol +low +sol\n/);
+  assert.match(captured.stdout, /gpt-6\.2-sol +low,high +nouveau\n/);
+  assert.match(captured.stdout, /agy · erreur : agy absent\n/);
+  assert.equal(refreshed, 0);
+  assert.equal(await runCommand(['models', '--refresh'], { ...streams(), catalog }), 0);
+  assert.equal(refreshed, 1);
+  const down = { providers: { codex: { status: 'error', reason: 'x', models: [] } } };
+  assert.equal(await runCommand(['models'], { ...streams(), catalog: { get: async () => down } }), 1);
 });

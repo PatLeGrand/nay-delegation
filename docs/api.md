@@ -119,6 +119,51 @@ La fonctionnalité analysée doit tolérer une fiche incomplète (champs `null`)
 
 Corps : l'objet `delegation` complet. Exige `Content-Type: application/json` et un en-tête `Origin` égal à l'origine du serveur (sinon 403). Valide avec `validateDelegation` : 400 avec `{ "error": "…", "errors": ["…"] }` si invalide ; sinon écrit `config/delegation.json` (écriture atomique : fichier temporaire puis renommage, JSON indenté de 2 espaces) et renvoie `{ "ok": true, "delegation": {…} }`. Corps limité en taille (config).
 
+### `GET /api/models`
+
+Catalogue des modèles par CLI (`src/models/catalog.js`), lu au démarrage du serveur puis gardé
+dans `.nay/state/models.json` :
+
+```json
+{
+  "fetchedAt": "…", "refreshing": false,
+  "providers": {
+    "codex": { "status": "ok", "fetchedAt": "…", "models": [
+      { "model": "gpt-6.2-sol", "label": "GPT-6.2-Sol", "description": "…",
+        "efforts": ["low", "medium", "high", "xhigh"], "defaultEffort": "low", "usedBy": [] }
+    ] },
+    "agy": { "status": "error", "reason": "…", "fetchedAt": "…", "stale": true, "models": [] },
+    "claude": { "status": "ok", "fetchedAt": "…", "models": [] }
+  }
+}
+```
+`usedBy` liste les agents de `config/agents.json` qui utilisent ce modèle. `efforts` vide :
+modèle à effort fixe. En échec, `models` garde le dernier catalogue connu (`stale: true`).
+
+### `POST /api/models/refresh`
+
+Relit les trois CLI (une seule lecture à la fois) et renvoie la même forme que `GET /api/models`.
+Mêmes protections que `PUT /api/delegation` (`Origin`, `Content-Type: application/json`), corps facultatif.
+
+### `GET /api/agents`
+
+```json
+{ "agents": { "sol": { "cli": "codex", "model": "gpt-6.1-sol", "effort": "medium", "timeoutMin": 40 } },
+  "roles": { "sol": ["developpeur", "relecteur.selonAuteur.terra"] } }
+```
+
+### `POST /api/agents` · `PUT /api/agents/:nom` · `DELETE /api/agents/:nom`
+
+Corps de `POST` : `{ "name", "cli", "model", "effort", "timeoutMin" }` (201) ; de `PUT` : le même
+sans `name` (renommer est refusé). Mêmes protections et limite de corps que `PUT /api/delegation`.
+Contrôles : nom `^[a-z][a-z0-9.-]{0,31}$` libre et différent de `orchestrateur`, CLI connu,
+effort parmi ceux de Nay et proposé par le modèle, délai entier de 1 à `maxTimeoutMin`
+(`config/models.json`), modèle présent dans le catalogue si celui du CLI a pu être lu (un agent
+existant garde son modèle même s’il a quitté le catalogue). 400 avec `errors` sinon ; 404 agent
+inconnu. `DELETE` renvoie 409 avec `errors` = rôles qui citent encore l’agent.
+Réponse : `{ "ok": true, "name": "…", "agents": {…}, "roles": {…} }`. `config/agents.json` est
+réécrit atomiquement, une ligne par agent ; les écritures de configuration passent une à une.
+
 ### `GET /api/events/stream`
 
 Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'événements du jour (`event: agent`, `data: <événement JSON>`), en suivant le changement de date et la rotation. Commentaire `: ping` toutes les 15 s. Paramètre facultatif : `feature`.
@@ -131,4 +176,5 @@ Flux Server-Sent Events. Envoie chaque nouvel événement ajouté au fichier d'�
 - **Agents en direct** : par fonctionnalité, arbre orchestrateur → explorateur / développeur / relecteur (d'après `role`), statut, outil en cours, durée, alertes ; mise à jour par le flux SSE.
 - **Fiche d'un agent** (au clic sur un appel) : modèle, rôle, durée, jetons, liste des outils et messages de `/api/calls/:callId`.
 - **Frise** : pour une fonctionnalité, une barre par appel sur l'axe du temps (début → fin), couleur par agent.
+- **Hangar** : agents de `config/agents.json` et modèles du catalogue, ajout, réglage et retrait d’agents.
 - **Paramètres** : ordre de délégation par rôle, réordonnable par glisser-déposer (et boutons monter / descendre pour le clavier), enregistré par `PUT /api/delegation` ; erreurs de validation affichées.

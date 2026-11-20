@@ -39,11 +39,14 @@ export function buildQuery(params) {
 
 export const getJson = (path) => request(path);
 
-export const putJson = (path, payload) => request(path, {
-  method: 'PUT',
+// Le serveur exige Content-Type JSON sur toute écriture, même sans corps (protection CSRF).
+export const sendJson = (method, path, payload) => request(path, {
+  method,
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(payload),
+  body: payload === undefined ? undefined : JSON.stringify(payload),
 });
+
+export const putJson = (path, payload) => sendJson('PUT', path, payload);
 
 export const fetchUsage = ({ feature, since } = {}) => getJson(`${API.usage}${buildQuery({ feature, since })}`);
 export const fetchQuota = () => getJson(API.quota);
@@ -57,3 +60,9 @@ export const resumeCall = (callId, message) => request(`${API.call(callId)}/resu
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ message }),
 });
+export const fetchModels = () => getJson(API.models);
+export const refreshModels = () => sendJson('POST', API.modelsRefresh);
+export const fetchAgents = () => getJson(API.agents);
+export const createAgent = (agent) => sendJson('POST', API.agents, agent);
+export const updateAgent = (name, agent) => sendJson('PUT', API.agent(name), agent);
+export const deleteAgent = (name) => sendJson('DELETE', API.agent(name));
