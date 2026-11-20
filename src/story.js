@@ -7,6 +7,7 @@ import { COMMIT_INSTRUCTIONS, commitAndRecord, lastMarker, parseCommitRequest } 
 import { chooseAgent } from './delegation.js';
 import { runAgent } from './runAgent.js';
 import { endsWithQuestion } from './lifecycle.js';
+import { checksFailures, checksNotice, formatChecks, loadChecks, runChecks } from './checks.js';
 
 const run = promisify(execFile);
 const MAX_DIFF_CHARS = 60_000;
@@ -147,7 +148,7 @@ export async function runStory(brief, { storyId = newStoryId(), journal = () => 
   }
   journal({ kind: 'story_end', storyId, feature, status: report.status, code: report.code,
     question: report.question, detail: report.detail, dev: report.dev, reviews: report.reviews,
-    commits: report.commits });
+    commits: report.commits, checks: report.checks, checksBy: report.checksBy });
   return { ...report, storyId };
 }
 
@@ -155,10 +156,14 @@ export function newStoryId() {
   return randomBytes(4).toString('hex');
 }
 
+// Contrôles du projet : chargés depuis son dossier et lancés par Nay (injectables pour les tests).
+export const checkOps = { load: (cwd) => loadChecks(cwd), run: (checks, cwd) => runChecks(checks, { cwd }) };
+
 async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2, execute = runAgent,
-  isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord, storyId } = {}) {
-  const report = { dev: null, devSkipped: [], commits: [], reviews: [], checks: null, status: 'OK',
-    code: EXIT.ok, detail: null, findings: null, question: false };
+  isAvailable = () => true, delegation, git = gitOps, committer = commitAndRecord, checker = checkOps,
+  storyId } = {}) {
+  const report = { dev: null, devSkipped: [], commits: [], reviews: [], checks: null, checksBy: null,
+    status: 'OK', code: EXIT.ok, detail: null, findings: null, question: false };
   const run = (agent, prompt, options) => execute(agent, prompt, { ...options, storyId });
   const isGit = await git.isRepo(cwd);
   const unavailable = new Set();
@@ -167,8 +172,17 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
     ...(delegation ? { delegation } : {}) });
   const stop = (status, code, detail) => Object.assign(report, { status, code, detail });
 
+  let checks;
+  try {
+    checks = await checker.load(cwd);
+  } catch (error) {
+    return stop('BLOQUÉ', EXIT.blocked, `Contrôles du projet illisibles : ${error.message}`);
+  }
+  // Sans contrôles déclarés, on garde le compte rendu du dev, signalé comme non vérifié.
+  const checksPrompt = checks ? checksNotice(checks) : CHECKS_INSTRUCTIONS;
+
   // Dev : on passe au suivant tant que l'agent qui a échoué n'a rien modifié.
-  const devPrompt = `${brief}${isGit ? COMMIT_INSTRUCTIONS : ''}${CHECKS_INSTRUCTIONS}`;
+  const devPrompt = `${brief}${isGit ? COMMIT_INSTRUCTIONS : ''}${checksPrompt}`;
   let dev;
   for (;;) {
     let agent;
@@ -194,7 +208,10 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
   report.dev = dev.agent;
 
   for (let round = 1; ; round += 1) {
-    report.checks = parseLine(dev.text, 'NAY-CHECKS') ?? report.checks;
+    if (!checks) {
+      report.checks = parseLine(dev.text, 'NAY-CHECKS') ?? report.checks;
+      if (report.checks) report.checksBy = 'dev';
+    }
     let target = 'les fichiers modifiés et non committés du dossier';
     if (isGit) {
       const request = parseCommitRequest(dev.text);
@@ -223,8 +240,30 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
       target = 'les fichiers modifiés par le dev';
     }
 
+    // Contrôles : un échec repart directement au dev, sans dépenser de relecture.
+    let checksLine = '';
+    if (checks) {
+      const results = await checker.run(checks, cwd);
+      Object.assign(report, { checks: formatChecks(results), checksBy: 'nay',
+        checksFailed: results.some((result) => !result.ok) });
+      if (report.checksFailed) {
+        const failures = checksFailures(results);
+        if (round >= maxRounds) {
+          report.findings = failures;
+          return stop('CONTRÔLES', EXIT.blocked, `Contrôles en échec après ${maxRounds} tours`);
+        }
+        const fixed = await fixRound(`Contrôles lancés par Nay en échec, à corriger :\n\n${failures}`);
+        if (!fixed) {
+          report.findings = failures;
+          return report;
+        }
+        continue;
+      }
+      checksLine = `\n\nContrôles lancés par Nay, tous réussis : ${report.checks}.`;
+    }
+
     // Revue : en lecture seule, on peut toujours passer au relecteur suivant.
-    const reviewPrompt = `Brief de la tâche relue :\n${brief}\n\nRelis ${target}.${VERDICT_INSTRUCTIONS}`;
+    const reviewPrompt = `Brief de la tâche relue :\n${brief}\n\nRelis ${target}.${checksLine}${VERDICT_INSTRUCTIONS}`;
     let review;
     for (;;) {
       let agent;
@@ -249,18 +288,31 @@ async function storyRounds(brief, { cwd = process.cwd(), feature, maxRounds = 2,
       return stop('DÉFAUTS', EXIT.blocked, `Défauts restants après ${maxRounds} tours de revue`);
     }
 
-    // Correction : on reprend la conversation du dev quand c'est possible.
-    const fixPrompt = `Retours de revue à corriger (seulement ceux-ci) :\n${withoutMarkers(review.text)}`
-      + `${isGit ? COMMIT_INSTRUCTIONS : ''}${CHECKS_INSTRUCTIONS}`;
+    if (!(await fixRound(`Retours de revue à corriger (seulement ceux-ci) :\n${withoutMarkers(review.text)}`))) {
+      report.findings = withoutMarkers(review.text);
+      return report;
+    }
+  }
+
+  // Correction : on reprend la conversation du dev quand c'est possible. Faux si elle a échoué.
+  async function fixRound(feedback) {
+    const fixPrompt = `${feedback}${isGit ? COMMIT_INSTRUCTIONS : ''}${checksPrompt}`;
     const fix = await run(dev.agent, dev.sessionId ? fixPrompt : `${brief}\n\n${fixPrompt}`, {
       mode: 'write', cwd, feature, role: 'dev',
       ...(dev.sessionId ? { resume: dev.sessionId, resumedFrom: dev.callId } : {}) });
     if (fix.status !== 'ok') {
-      report.findings = withoutMarkers(review.text);
-      return stop('BLOQUÉ', EXIT.blocked, `Correction par ${dev.agent} échouée : ${shortError(fix)}`);
+      stop('BLOQUÉ', EXIT.blocked, `Correction par ${dev.agent} échouée : ${shortError(fix)}`);
+      return false;
     }
     dev = { ...fix, agent: dev.agent, sessionId: fix.sessionId ?? dev.sessionId };
+    return true;
   }
+}
+
+function findingsTitle(report) {
+  if (report.question) return 'Question du dev :';
+  // Une story arrêtée pendant la correction des contrôles n'a pas de constats de relecteur.
+  return report.checksFailed ? 'Contrôles en échec :' : 'Constats du relecteur :';
 }
 
 export function formatStory(report) {
@@ -270,9 +322,9 @@ export function formatStory(report) {
     `Commit : ${report.commits.length ? report.commits.join(' ; ') : 'aucun'}`,
     `Revue : ${report.reviews.length
       ? report.reviews.map(({ agent, round, verdict }) => `${agent} ${verdict} (tour ${round})`).join(' ; ') : 'aucune'}`,
-    `Contrôles : ${report.checks ?? 'non rapportés'}`,
+    `Contrôles : ${report.checks ?? 'non rapportés'}${report.checksBy === 'dev' ? ' (déclarés par le dev, non vérifiés)' : ''}`,
     `Statut : ${report.status}${report.detail ? ` — ${report.detail}` : ''}`];
   if (report.storyId) lines.unshift(`Story : ${report.storyId}`);
-  if (report.findings) lines.push('', report.question ? 'Question du dev :' : 'Constats du relecteur :', report.findings);
+  if (report.findings) lines.push('', findingsTitle(report), report.findings);
   return `${lines.join('\n')}\n`;
 }

@@ -46,6 +46,7 @@ arrêté sur une question sans rien modifier.
 | `no_agent` | `AUCUN AGENT` : aucun agent disponible pour un rôle |
 | `blocked` | `BLOQUÉ` : échec du dev après modification, commit impossible, correction échouée |
 | `defects` | `DÉFAUTS` : défauts restants après le dernier tour de revue |
+| `checks` | `CONTRÔLES` : contrôles du projet encore en échec au dernier tour |
 | `crash` | exception inattendue de `nay story` (git, CLI) : `story_end` est quand même écrit |
 
 `call_end.cause` est écrit par Nay ; pour un ancien événement sans `cause`, elle est déduite du
@@ -57,8 +58,9 @@ statut et du message d'erreur.
   (si une reprise automatique suit).
 - Champ commun `storyId` sur les événements des appels lancés par une story.
 - `story_start` : `storyId`, `feature`, `cwd`, `ts`. Sans `callId`.
-- `story_end` : `storyId`, `feature`, `status` (`OK`, `BLOQUÉ`, `DÉFAUTS`, `AUCUN AGENT`),
-  `code`, `cause`, `question`, `detail`, `dev`, `reviews`, `commits`, `ts`. `detail` et les
+- `story_end` : `storyId`, `feature`, `status` (`OK`, `BLOQUÉ`, `DÉFAUTS`, `CONTRÔLES`, `AUCUN AGENT`),
+  `code`, `cause`, `question`, `detail`, `dev`, `reviews`, `commits`, `checks` (résumé),
+  `checksBy` (`nay`, `dev` ou null), `ts`. `detail` et les
   verdicts de `reviews` sont masqués comme `error` (ils peuvent reprendre un stderr).
 
 ## `nay wait`

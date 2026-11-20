@@ -117,6 +117,31 @@ Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier 
 4. Si `CHANGES` : reprend la session du dev avec les constats, recommite, nouvelle revue,
    jusqu'à `--rounds` tours (2 par défaut).
 
+### Contrôles lancés par Nay
+
+Si le projet déclare ses contrôles dans `.nay/checks.json`, Nay les lance lui-même après
+chaque travail du dev, avant la relecture, au lieu de croire le résultat annoncé par l'agent :
+
+```json
+{ "checks": [
+  { "name": "tests", "command": "pytest -q" },
+  { "name": "lint", "command": "ruff check .", "timeoutSec": 60 }
+] }
+```
+
+- Les commandes tournent dans le dossier de la story, hors bac à sable, avec un shell, l'une
+  après l'autre (toutes, même après un échec). Elles ne coûtent aucun jeton.
+- Un échec repart directement au dev (même session) avec la fin de la sortie, sans passer par
+  le relecteur. Chaque correction compte comme un tour de `--rounds`. Au dernier tour, la story
+  s'arrête en `CONTRÔLES` (code 1).
+- Si tout passe, le relecteur reçoit le résultat avec le diff.
+- Sans ce fichier, Nay demande au dev la ligne `NAY-CHECKS:` comme avant, et l'affiche
+  « déclarés par le dev, non vérifiés ». Un fichier invalide arrête la story avant tout appel.
+
+Délai par défaut, taille de la sortie gardée et variables d'environnement (`CI=1`) :
+`config/checks.json`. Ces commandes sont exécutées telles quelles : ne lancer `nay story` que sur
+des projets dont on connaît le `.nay/checks.json`.
+
 Sortie courte, conçue pour l'orchestrateur :
 
 ```text

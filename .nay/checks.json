@@ -1,0 +1,5 @@
+{
+  "checks": [
+    { "name": "tests", "command": "node --test \"test/*.test.js\"", "timeoutSec": 300 }
+  ]
+}
