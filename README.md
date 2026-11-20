@@ -205,6 +205,41 @@ affichés), `2` aucun agent disponible. `--feature` vaut par défaut le nom du d
 Si le dev s'arrête sur une question sans rien modifier, la story s'arrête (`BLOQUÉ`) et
 affiche la question.
 
+## Enchaîner plusieurs stories (`nay plan`)
+
+```bash
+nay plan livraison.md --cwd ./projet --feature livraison --parallel 2 --dev sol --rounds 3
+```
+
+Chaque titre de niveau 2 ouvre une tâche. La ligne facultative `Après`, placée juste sous le titre,
+liste les identifiants des tâches qui doivent réussir avant son lancement.
+
+```markdown
+## api : Décrire les routes
+Documenter les routes dans docs/api.md.
+
+## interface : Vérifier la navigation
+Vérifier les liens du menu principal.
+
+## bilan : Préparer la livraison
+Après : api, interface
+Rédiger les notes de livraison.
+```
+
+Nay valide le plan entier avant tout appel. Les identifiants doivent être uniques et les dépendances
+connues et sans cycle. Un échec laisse ses descendants « non lancée » et les tâches indépendantes
+continuent. Chaque story lancée porte son propre identifiant et la feature commune pour le suivi
+avec `nay wait --feature livraison`. Par défaut, la feature prend le nom du dossier projet.
+
+Par défaut, les stories se succèdent dans le dossier du projet (`parallel` vaut 1 dans
+`config/plan.json`). Avec `--parallel` supérieur à 1, Nay exige un dépôt Git avec un premier commit.
+Chaque tâche lancée reçoit une branche et un worktree sous `.nay/worktrees/`. Avec une seule
+dépendance, la branche part du dernier commit de cette dépendance. Avec zéro ou plusieurs dépendances,
+elle part du HEAD initial du projet. Utiliser le mode série pour une tâche qui doit retrouver ensemble
+les modifications de plusieurs prédécesseurs. Les worktrees sont conservés et la fusion des branches est
+manuelle. Le bilan affiche une ligne par tâche dans l’ordre du fichier, avec statut, storyId, dev,
+verdict et branche éventuelle. Le code de sortie vaut 0 si toutes les tâches réussissent, 1 sinon.
+
 ## Attendre un appel ou une story (`nay wait`)
 
 ```bash
