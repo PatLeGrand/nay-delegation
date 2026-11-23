@@ -15,12 +15,13 @@ introuvable, utilise `node <dépôt Nay>/bin/nay.js` ; le dépôt est d'habitude
 
 ## Au début d'une session
 
-Lance `nay guide` et suis-le. Il liste les rôles perso de l'utilisateur (adversaire, sécurité,
-UI…) et la règle de chacun :
+Lance `nay guide --cwd <projet>` et suis-le. Il liste les rôles perso de l'utilisateur (adversaire,
+sécurité, UI…), les rôles du projet (ses sous-agents `.claude/agents`) et la règle de chacun :
 - `toujours` : lancé sans demander ; `sur-demande` : seulement si l'utilisateur le demande ;
-  `proposer` : le proposer en une ligne après le travail concerné.
-- Règle pas encore fixée : pose la question avec ces trois réponses, enregistre le choix avec
-  `nay usage <rôle> toujours|sur-demande|proposer`, et ne lance pas le rôle avant.
+  `proposer` : le proposer en une ligne après le travail concerné ; `selon-diff` (rôles de projet) :
+  comme `toujours`, si le diff touche les chemins indiqués.
+- Règle pas encore fixée : pose la question avec les réponses proposées, enregistre le choix avec
+  `nay usage <rôle> <règle> --cwd <projet>`, et ne lance pas le rôle avant.
 - Sans rôle perso, rien ne change.
 
 ## Commande par défaut : `nay story`

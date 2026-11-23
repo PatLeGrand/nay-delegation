@@ -10,7 +10,8 @@ import { runAgent } from './runAgent.js';
 import { detectProject } from './project.js';
 import { endsWithQuestion } from './lifecycle.js';
 import { checksFailures, checksNotice, formatChecks, loadChecks, loadChecksConfig, runChecks } from './checks.js';
-import { loadRoles, rolePrompt } from './roles.js';
+import { loadRoles, roleDelegation, rolePrompt } from './roles.js';
+import { PATH_USAGE, touchesPaths } from './projectRoles.js';
 import { verifyTdd } from './tdd.js';
 
 const run = promisify(execFile);
@@ -126,6 +127,16 @@ export const gitOps = {
       { cwd, maxBuffer: MAX_BUFFER });
     return truncate(stdout, maxChars);
   },
+  // Chemins touchés (règle « selon le diff ») : ceux d'un commit, ou les modifications en cours.
+  async changedFiles(cwd, commit) {
+    if (commit) {
+      const { stdout } = await run('git', ['show', '--name-only', '--format=', commit], { cwd, maxBuffer: MAX_BUFFER });
+      return stdout.split('\n').filter(Boolean);
+    }
+    const { stdout: tracked } = await run('git', ['diff', 'HEAD', '--name-only'], { cwd, maxBuffer: MAX_BUFFER });
+    const { stdout: untracked } = await run('git', ['ls-files', '--others', '--exclude-standard'], { cwd });
+    return `${tracked}\n${untracked}`.split('\n').filter(Boolean);
+  },
   // Modifications non committées : diff des fichiers suivis et liste des nouveaux fichiers.
   async uncommitted(cwd, maxChars) {
     const { stdout: diff } = await run('git', ['diff', 'HEAD', '--stat', '--patch'], { cwd, maxBuffer: MAX_BUFFER });
@@ -226,18 +237,19 @@ function createContext(brief, { cwd = process.cwd(), feature, maxRounds = 2, exe
     question: false };
   const unavailable = new Set();
   const availability = (agent) => !unavailable.has(agent) && isAvailable(agent);
-  return { brief, cwd, feature, maxRounds, git, committer, checker, delegation, forcedDev: dev, skipBaseline,
+  const ctx = { brief, cwd, feature, maxRounds, git, committer, checker, delegation, forcedDev: dev, skipBaseline,
     baseline, roleConfig: roles, skipRoles, skipConformity, report, unavailable, availability,
-    isGit: false, checks: null, checksPrompt: '', autoRoles: [], dev: null, disputeNote: '',
+    isGit: false, checks: null, checksPrompt: '', autoRoles: [], touched: new Set(), dev: null, disputeNote: '',
     run: (agent, prompt, options) => execute(agent, prompt, { ...options, storyId }),
-    choose: (role, author) => chooseAgent(role, { author, isAvailable: availability, delegation }),
+    choose: (role, author) => chooseAgent(role, { author, isAvailable: availability, delegation: ctx.delegation }),
     // Rôles hors relecteur : l'auteur du code est exclu explicitement.
-    chooseForRole: (role, author) => chooseAgent(role, { delegation,
+    chooseForRole: (role, author) => chooseAgent(role, { delegation: ctx.delegation,
       isAvailable: (agent) => agent !== author && availability(agent) }),
     stop(status, code, detail) {
       Object.assign(report, { status, code, detail });
       return null;
     } };
+  return ctx;
 }
 
 async function storyRounds(brief, options) {
@@ -260,8 +272,11 @@ async function prepare(ctx) {
   ctx.isGit = await ctx.git.isRepo(ctx.cwd);
   if (!ctx.skipRoles) {
     try {
-      ctx.autoRoles = Object.entries(ctx.roleConfig ?? loadRoles())
-        .filter(([, role]) => role.usage === 'toujours' && role.mode === 'read');
+      // Rôles de projet compris : leur chaîne d'agents s'ajoute à la délégation.
+      const roles = ctx.roleConfig ?? loadRoles({ cwd: ctx.cwd });
+      ctx.delegation = roleDelegation(roles, ctx.delegation);
+      ctx.autoRoles = Object.entries(roles)
+        .filter(([, role]) => ['toujours', PATH_USAGE].includes(role.usage) && role.mode === 'read');
     } catch (error) {
       return ctx.stop('BLOQUÉ', EXIT.blocked, `Rôles perso illisibles : ${error.message}`);
     }
@@ -349,6 +364,7 @@ async function reviewSubject(ctx, round) {
         model: dev.model, feature: ctx.feature, role: 'dev' } });
       report.commits.push(line);
       const hash = line.split(' ')[0];
+      await noteTouched(ctx, hash);
       return { commit: hash, target: `le commit ${hash}, dont voici le diff complet (ouvre les fichiers si tu `
         + `as besoin de plus de contexte) :\n\n\`\`\`diff\n${await git.show(cwd, hash, MAX_DIFF_CHARS)}\n\`\`\`` };
     } catch (error) {
@@ -362,6 +378,7 @@ async function reviewSubject(ctx, round) {
     return ctx.stop('BLOQUÉ', EXIT.blocked, report.question ? 'Le dev pose une question'
       : 'Le dev n’a rien modifié ni demandé de commit');
   }
+  await noteTouched(ctx, null);
   return { commit: null, target: `les modifications non committées, dont voici le diff (ouvre les fichiers si `
     + `tu as besoin de plus de contexte) :\n\n\`\`\`diff\n${await git.uncommitted(cwd, MAX_DIFF_CHARS)}\n\`\`\`` };
 }
@@ -461,11 +478,31 @@ async function askReadOnly(ctx, role, prompt, record) {
   }
 }
 
-// Rôles perso lecture seule « toujours » : même diff que le relecteur, jamais par l'auteur du code.
-// Rend les constats au premier CHANGES ; un rôle sans agent disponible est sauté sans bloquer.
+// Chemins touchés par toute la story, pour la règle « selon le diff ». null : inconnus, on lance le rôle.
+async function noteTouched(ctx, commit) {
+  if (!ctx.touched || !ctx.autoRoles.some(([, role]) => role.usage === PATH_USAGE)) return;
+  try {
+    for (const file of await ctx.git.changedFiles(ctx.cwd, commit)) ctx.touched.add(file);
+  } catch {
+    ctx.touched = null;
+  }
+}
+
+function concerned(ctx, role) {
+  if (role.usage !== PATH_USAGE) return true;
+  return !ctx.isGit || !ctx.touched || touchesPaths([...ctx.touched], role.paths ?? []);
+}
+
+// Rôles perso lecture seule « toujours » ou « selon le diff » : même diff que le relecteur, jamais
+// par l'auteur du code. Rend les constats au premier CHANGES ; un rôle sans agent disponible est
+// sauté sans bloquer ; un rôle « selon le diff » dont aucun chemin n'est touché est noté non concerné.
 async function runAutoRoles(ctx, round, target, notes) {
   for (const [id, role] of ctx.autoRoles) {
     const record = (agent, verdict) => ctx.report.roles.push({ role: id, agent, round, verdict });
+    if (!concerned(ctx, role)) {
+      record(null, 'non concerné');
+      continue;
+    }
     const prompt = `${rolePrompt(role, ctx.brief)}\n\nRelis ${target}.${notes}${VERDICT_INSTRUCTIONS}`;
     const result = await askReadOnly(ctx, id, prompt, record);
     if (!result) continue;

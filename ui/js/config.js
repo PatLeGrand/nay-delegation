@@ -31,6 +31,8 @@ export const API = {
   delegationPerso: '/api/delegation/perso',
   roles: '/api/roles',
   role: (id) => `/api/roles/${encodeURIComponent(id)}`,
+  projectRoles: '/api/project-roles',
+  projectRole: (id) => `/api/project-roles/${encodeURIComponent(id)}`,
   models: '/api/models',
   modelsRefresh: '/api/models/refresh',
   agents: '/api/agents',

@@ -71,3 +71,6 @@ export const resetDelegation = () => sendJson('DELETE', API.delegationPerso);
 export const createRole = (role) => sendJson('POST', API.roles, role);
 export const updateRole = (id, role) => sendJson('PUT', API.role(id), role);
 export const deleteRole = (id) => sendJson('DELETE', API.role(id));
+export const fetchProjectRoles = (project) => getJson(`${API.projectRoles}${buildQuery({ project })}`);
+export const setProjectRoleUsage = (project, id, rule) =>
+  putJson(`${API.projectRole(id)}${buildQuery({ project })}`, rule);

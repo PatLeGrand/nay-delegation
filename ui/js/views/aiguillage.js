@@ -250,6 +250,52 @@ function renderRoles(source, allAgents, quotaMap, state, actions, updateDraft) {
               onChange: (e) => actions.setRoleUsage(id, e.target.value) })),
         )))
       : state.roleForm ? null : el('p', { class: 'muted small' }, 'Aucun rôle perso pour l’instant.'),
+    renderProjectRoles(state, actions),
+  );
+}
+
+function ruleText(role) {
+  return role.paths?.length ? `Chemins : ${role.paths.join(', ')}` : null;
+}
+
+// Rôles de projet : sous-agents `.claude/agents` du projet choisi en haut. Lecture seule ici, sauf
+// la règle d'usage, enregistrée dans `.nay/roles.json` du projet (comme `nay usage`).
+function renderProjectRoles(state, actions) {
+  const data = state.projectRoles;
+  const head = el('h4', { class: 'section-kicker' }, data?.project ? `Rôles du projet ${data.project.name}` : 'Rôles de projet');
+  if (!state.project || state.project === '-') {
+    return el('div', { class: 'project-roles' }, head,
+      el('p', { class: 'muted small' }, 'Choisis un projet en haut pour voir les rôles importés de ses sous-agents (.claude/agents).'));
+  }
+  if (state.apiErrors?.projectRoles) {
+    return el('div', { class: 'project-roles' }, head,
+      el('p', { class: 'callout callout--danger small', role: 'alert' }, state.apiErrors.projectRoles));
+  }
+  if (!data) return el('div', { class: 'project-roles' }, head, el('p', { class: 'muted small' }, 'Chargement…'));
+  const roles = Object.entries(data.roles ?? {});
+  return el('div', { class: 'project-roles' }, head,
+    el('p', { class: 'muted small' },
+      'Importés de .claude/agents du checkout principal, relus à chaque appel. Modèles : ceux du relecteur, sauf « agents » dans .nay/roles.json.'),
+    roles.length
+      ? el('div', { class: 'cascade-grid' }, ...roles.map(([id, role]) => el('div', { class: 'role-card role-card--project' },
+        el('div', { class: 'role-card__head' },
+          el('strong', null, role.label),
+          el('span', { class: 'badge badge-info', title: role.file ?? '' }, 'projet'),
+          data.masked?.includes(id) ? el('span', { class: 'badge badge-warn', title: 'Un rôle global du même id est masqué dans ce projet' }, 'masque le global') : null),
+        el('p', { class: 'muted small' }, `${id} · ${role.mode === 'read' ? 'lecture seule' : 'écriture'} — ${role.description}`),
+        el('p', { class: 'small' }, `Modèles : ${(data.chains?.[id] ?? []).join(' → ') || 'aucun'}`),
+        ruleText(role) ? el('p', { class: 'small' }, ruleText(role)) : null,
+        role.claudeModel ? el('p', { class: 'muted small' }, `model: ${role.claudeModel} (indication pour Claude Code, ignorée par Nay)`) : null,
+        el('label', { class: 'field role-usage' },
+          el('span', { class: 'field__label' }, 'Quand l’utiliser'),
+          usageSelect({ value: role.usage, usages: data.usages, label: `Règle d’usage de ${role.label}`, focusKey: `project-usage:${id}`,
+            onChange: (e) => actions.setProjectRoleUsage(id, e.target.value) })),
+      )))
+      : el('p', { class: 'muted small' }, 'Aucun sous-agent dans .claude/agents du checkout principal de ce projet.'),
+    data.errors?.length
+      ? el('div', { class: 'callout callout--warn small', role: 'status' },
+        el('p', null, 'Ignorés :'), el('ul', null, ...data.errors.map((error) => el('li', null, error))))
+      : null,
   );
 }
 

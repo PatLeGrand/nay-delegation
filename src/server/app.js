@@ -12,6 +12,7 @@ import { readCall, readStoryChecks } from './calls.js';
 import { readFeatures } from './features.js';
 import { readDelegation, readLayered, resetDelegation, writeDelegation } from './delegation.js';
 import { addRole, deleteRole, updateRole } from './roles.js';
+import { readProjectRolesApi, setProjectRoleUsage } from './projectRoles.js';
 import { userConfigDir } from '../userConfig.js';
 import { addAgent, deleteAgent, listAgents, readModels, updateAgent } from './agents.js';
 import { createCatalog } from '../models/catalog.js';
@@ -75,6 +76,7 @@ async function readApi(pathname, params, context) {
     return readFeatures(root, config.featuresDir, nayProject);
   }
   if (pathname === '/api/delegation') return readDelegation(root, userDir);
+  if (pathname === '/api/project-roles') return readProjectRolesApi(context, project);
   if (pathname === '/api/agents') return listAgents(root, userDir);
   if (pathname === '/api/models') return readModels(root, catalog, userDir);
   throw httpError(404, 'Route inconnue');
@@ -100,6 +102,7 @@ async function writeApi(request, pathname, context) {
   const body = () => readBody(request, config.maxBodyBytes);
   const agentMatch = /^\/api\/agents\/([^/]+)$/.exec(pathname);
   const roleMatch = /^\/api\/roles\/([^/]+)$/.exec(pathname);
+  const projectRoleMatch = /^\/api\/project-roles\/([^/]+)$/.exec(pathname);
   const options = { catalog, config: modelsConfig };
   if (pathname === '/api/delegation' && request.method === 'PUT') {
     const delegation = await body();
@@ -130,6 +133,11 @@ async function writeApi(request, pathname, context) {
   if (roleMatch && request.method === 'PUT') {
     const role = await body();
     return [200, await serialized(context, () => updateRole(root, userDir, roleMatch[1], role))];
+  }
+  if (projectRoleMatch && request.method === 'PUT') {
+    const rule = await body();
+    const project = new URL(request.url, 'http://nay').searchParams.get('project');
+    return [200, await serialized(context, () => setProjectRoleUsage(context, project, projectRoleMatch[1], rule))];
   }
   if (roleMatch && request.method === 'DELETE') {
     return [200, await serialized(context, () => deleteRole(root, userDir, roleMatch[1]))];
