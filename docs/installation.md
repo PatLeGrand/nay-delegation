@@ -10,8 +10,8 @@ que si elle réussit. En cas d'échec, arrête-toi et rapporte l'erreur exacte.
 - **Une seule copie de Nay par machine.** Ne clone pas Nay dans un dossier temporaire ou dans
   le dossier de ton harness : tous les harness doivent appeler la même copie, sinon les
   journaux, `nay ui` et la configuration divergent.
-- Ne modifie pas `config/` sans l'accord de l'utilisateur, sauf les chemins de binaires de
-  l'étape 3.
+- Ne modifie pas `config/` sans l'accord de l'utilisateur (même les chemins des CLI : voir
+  l'étape 3).
 
 ## 1. Prérequis
 
@@ -20,6 +20,9 @@ que si elle réussit. En cas d'échec, arrête-toi et rapporte l'erreur exacte.
 | Node.js ≥ 22 | moteur et serveur local | `node --version` |
 | Git | commits des agents, worktrees | `git --version` |
 | Au moins un CLI d'agent | exécuter les agents | voir ci-dessous |
+
+Sur **macOS**, voir aussi la section [macOS](#macos) (Node et Git par Homebrew, lien de la
+commande, interface en tâche de fond).
 
 CLI d'agents pris en charge (installe ceux dont l'utilisateur a un abonnement) :
 
@@ -46,19 +49,22 @@ Raccourci facultatif (dans `~/.bashrc` ou `~/.zshrc`) :
 alias nay='node ~/Documents/Projets/nay-delegation/bin/nay.js'
 ```
 
-## 3. Adapter les chemins des CLI
+## 3. Chemins des CLI
 
 `config/engine.json` contient le chemin de chaque CLI (`codexBin`, `agyBin`, `claudeBin`).
-Trouve les vrais chemins et corrige ceux qui diffèrent :
+**Ne le modifie pas** : un dépôt modifié fait refuser `nay update`.
+
+- Un chemin absolu configuré qui n'existe pas sur la machine (ex. `/usr/lib/chatgpt/resources/codex`,
+  propre au Codex de l'app ChatGPT pour Linux) est remplacé par le nom du CLI cherché dans le
+  `PATH`. `nay check-config` affiche une ligne quand ce repli a lieu.
+- Un CLI installé hors du `PATH` : définis `CODEX_BIN`, `AGY_BIN` ou `CLAUDE_BIN` dans
+  l'environnement du harness.
 
 ```bash
-command -v codex agy claude
+command -v codex agy claude   # chaque CLI installé doit être trouvé
 ```
 
-Exemple : si `codex` est dans `/usr/local/bin/codex`, mets `"codexBin": "/usr/local/bin/codex"`.
-Le Codex fourni avec l'app ChatGPT pour Linux n'est souvent pas dans le `PATH` : cherche
-`/usr/lib/chatgpt/resources/codex` (valeur par défaut du dépôt).
-Si un CLI est absent, laisse sa ligne : ses agents seront simplement indisponibles.
+Si un CLI est absent, ses agents sont simplement indisponibles.
 
 ## 4. Vérifier l'installation
 
@@ -98,27 +104,26 @@ Réussite : la dernière ligne est `Statut : OK`.
 
 ## 6. Brancher Nay sur ton harness
 
-L'orchestrateur appelle Nay par le shell. Écris les règles dans le fichier d'instructions du
-harness, **en pointant vers la copie unique de Nay** :
+Le dépôt fournit une skill prête à l'emploi : [`skills/nay/SKILL.md`](../skills/nay/SKILL.md)
+(commandes, règles de l'orchestrateur, rôles perso, projets, consignes par harness). Installe-la
+par un **lien** vers la copie unique de Nay : `nay update` la tient alors à jour.
 
-| Harness | Fichier d'instructions |
-|---|---|
-| Claude Code | `CLAUDE.md` ou un fichier inclus (ex. `.claude/nay-delegation.local.md`) |
-| Codex | `AGENTS.md` |
-| Antigravity | une skill, ex. `~/.gemini/config/skills/nay-delegation/SKILL.md` |
+```bash
+NAY_DIR=~/Documents/Projets/nay-delegation
+# Claude Code
+mkdir -p ~/.claude/skills && ln -sfn "$NAY_DIR/skills/nay" ~/.claude/skills/nay
+# Codex (+ règle qui autorise `nay` hors sandbox)
+mkdir -p ~/.codex/skills ~/.codex/rules && ln -sfn "$NAY_DIR/skills/nay" ~/.codex/skills/nay
+printf 'prefix_rule(pattern = ["nay"], decision = "allow")\n' > ~/.codex/rules/nay.rules
+# Antigravity
+mkdir -p ~/.gemini/config/skills && ln -sfn "$NAY_DIR/skills/nay" ~/.gemini/config/skills/nay
+```
 
-Règles minimales à y mettre :
-1. Pour une tâche de code courante, écrire un brief (objectif, fichiers, contraintes, critère
-   de fin) puis lancer `nay story <brief> --cwd <projet> --feature <nom>`.
-2. Lire seulement le compte rendu et le code de sortie : `0` OK, `1` bloqué ou défauts (les
-   constats sont affichés), `2` aucun agent disponible.
-3. Ne pas relire le diff ni relancer les contrôles : la revue est faite par un autre modèle.
-4. Lancer les stories **en arrière-plan** si le harness le permet : elles durent de quelques
-   minutes à plus de dix.
-5. Briefs hors du dépôt (dossier temporaire), jamais committés.
-6. En début de session, lancer `nay guide` et le suivre : rôles perso de l'utilisateur (adversaire,
-   sécurité, UI…), règle de chacun, et questions à lui poser avec les réponses proposées, puis
-   enregistrer son choix avec `nay usage <rôle> <règle>`.
+Vérification : `head -3 ~/.claude/skills/nay/SKILL.md` affiche `name: nay`.
+
+La skill suppose la commande `nay` dans le `PATH` (section 8). Les règles propres à un projet
+(branches, tickets, tâches à garder pour soi) vont dans son `CLAUDE.md` ou `AGENTS.md`, pas dans
+la skill.
 
 ## 7. Suivre l'activité
 
@@ -161,11 +166,52 @@ redémarré quand `main` était déjà à jour mais qu'il a démarré avant le d
 exemple après un `git pull` fait à la main). Le dossier de Nay doit
 rester sur `main` : pour travailler sur Nay, utiliser un worktree séparé.
 
-**Codex sans dépôt indiqué** : une skill globale `~/.codex/skills/nay/SKILL.md` (commandes de
-la section 6) et une règle `~/.codex/rules/nay.rules` :
-`prefix_rule(pattern = ["nay"], decision = "allow")`. La skill doit demander l'exécution hors
-sandbox (`require_escalated`) : Nay écrit son journal hors du dossier courant. `codex exec`
-(sans interface) refuse toute élévation ; l'app Codex l'accepte.
+## macOS
+
+Testé sous Linux ; ces étapes remplacent ce qui y est propre. Rapporte toute différence.
+
+1. **Prérequis** (avec [Homebrew](https://brew.sh)) : `brew install node git`, puis
+   `node --version` (≥ 22). CLI d'agents : `brew install codex` ou `npm install -g @openai/codex`,
+   `npm install -g @anthropic-ai/claude-code`, et l'app Antigravity pour `agy`. Vérifie avec
+   `command -v codex agy claude` : rien à changer dans `config/engine.json` (section 3).
+2. **Commande `nay`** : `~/.local/bin` n'est pas dans le `PATH` par défaut.
+   ```bash
+   mkdir -p ~/.local/bin && ln -sfn ~/Documents/Projets/nay-delegation/bin/nay.js ~/.local/bin/nay
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+   nay check-config
+   ```
+   Une app lancée depuis le Dock (Claude Code, Codex, Antigravity) ne lit pas toujours
+   `~/.zshrc` : si elle ne trouve pas `nay`, relance-la depuis un terminal ou utilise
+   `node ~/Documents/Projets/nay-delegation/bin/nay.js` dans ses consignes.
+3. **Skill** : section 6, identique.
+4. **Interface toujours active** (facultatif), avec launchd à la place de systemd :
+   `~/Library/LaunchAgents/com.nay.ui.plist`
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0"><dict>
+     <key>Label</key><string>com.nay.ui</string>
+     <key>ProgramArguments</key><array>
+       <string>/opt/homebrew/bin/node</string>
+       <string>/Users/TON_NOM/Documents/Projets/nay-delegation/bin/nay.js</string>
+       <string>ui</string>
+     </array>
+     <key>WorkingDirectory</key><string>/Users/TON_NOM/Documents/Projets/nay-delegation</string>
+     <key>EnvironmentVariables</key><dict>
+       <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+     </dict>
+     <key>RunAtLoad</key><true/>
+     <key>KeepAlive</key><true/>
+   </dict></plist>
+   ```
+   Remplace `TON_NOM` et le chemin de `node` (`command -v node` : `/opt/homebrew/bin/node` sur
+   puce Apple, `/usr/local/bin/node` sur Intel).
+   ```bash
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nay.ui.plist
+   ```
+5. **Mise à jour** : `nay update` met le dépôt à jour mais ne sait redémarrer que le service
+   systemd. Après une mise à jour, redémarre l'interface :
+   `launchctl kickstart -k gui/$(id -u)/com.nay.ui`.
 
 ## Pièges connus
 
@@ -175,4 +221,5 @@ sandbox (`require_escalated`) : Nay écrit son journal hors du dossier courant. 
 | L'agent ne peut pas committer | le sandbox garde `.git` en lecture seule | utiliser `--commit` : c'est Nay qui committe |
 | Tests en échec `EPERM` | exécution dans un sandbox | relancer hors sandbox |
 | Appels absents de `nay ui` | le harness utilise une autre copie de Nay | pointer toutes les règles vers la copie unique |
+| `nay: command not found` dans une app (Mac) | l'app ne lit pas `~/.zshrc` | la relancer depuis un terminal, ou appeler `node <dépôt Nay>/bin/nay.js` |
 | `Agent inconnu` | agent absent de `config/agents.json` | vérifier le nom avec `node bin/nay.js check-config` |

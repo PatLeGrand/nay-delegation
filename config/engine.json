@@ -4,6 +4,7 @@
   "codexBin": "/usr/lib/chatgpt/resources/codex",
   "agyBin": "agy",
   "claudeBin": "claude",
+  "binFallbacks": { "codex": "codex", "agy": "agy", "claude": "claude" },
   "agyPromptMaxBytes": 32768,
   "tempDirPrefix": ".nay-call-"
 }
