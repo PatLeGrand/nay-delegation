@@ -16,11 +16,13 @@ Explorateur non lancé. Constats de l'orchestrateur : les skills Codex (`~/.code
 ## Reviewer
 
 - Conformité Haiku : CHANGES sur 5 points, tous contestés par Neon avec raison (un seul commit par tour imposé par Nay, injection `engineLoader` nécessaire au test, test `bin` à adapter à la nouvelle ligne, champ `fallbacks` minimal, une seule phrase au README). Tranché par l'orchestrateur en faveur de Neon.
+- Relecture Hydrogen de toute la branche (code, et docs comparées aux vraies commandes) : PASS. Remarque mineure corrigée : la règle d'installation autorisait encore à modifier les chemins de `config/`.
 
 ## Tests
 
 - `test/config.test.js` : variable d'environnement prioritaire, chemin absolu absent → repli, chemin présent → gardé, nom nu → gardé, ligne de `check-config`.
 - `nay update` simulé sans `systemctl` : code 0, « Service nay-ui non actif : rien à redémarrer. »
+- `node --test "test/*.test.js"` : 308 réussis, 0 échec.
 - Non testé sur un vrai Mac.
 - Ma décision : en attente.
 

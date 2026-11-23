@@ -10,8 +10,8 @@ que si elle réussit. En cas d'échec, arrête-toi et rapporte l'erreur exacte.
 - **Une seule copie de Nay par machine.** Ne clone pas Nay dans un dossier temporaire ou dans
   le dossier de ton harness : tous les harness doivent appeler la même copie, sinon les
   journaux, `nay ui` et la configuration divergent.
-- Ne modifie pas `config/` sans l'accord de l'utilisateur, sauf les chemins de binaires de
-  l'étape 3.
+- Ne modifie pas `config/` sans l'accord de l'utilisateur (même les chemins des CLI : voir
+  l'étape 3).
 
 ## 1. Prérequis
 
