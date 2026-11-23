@@ -13,7 +13,7 @@ function add(total, entry) {
   return total;
 }
 
-function usageProject(entry, config) {
+export function usageProject(entry, config) {
   return Object.hasOwn(entry, 'project') ? entry.project : projectFromPath(entry.cwd, config);
 }
 

@@ -1437,3 +1437,9 @@ kbd {
 .role-form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; padding: 16px; }
 .role-form__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .role-form__actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Rôles de projet (sous-agents .claude/agents du projet choisi) */
+.project-roles { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.role-card--project { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-recess); min-width: 0; }
+.role-card--project p { margin: 0; overflow-wrap: anywhere; }
+.role-card__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

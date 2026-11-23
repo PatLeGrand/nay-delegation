@@ -7,7 +7,7 @@ import {
 import {
   buildQuery, getJson, createAgent, deleteAgent, fetchAgents, fetchCall, fetchDelegation, fetchFeatures,
   fetchModels, fetchProjects, fetchQuota, fetchStatus, fetchUsage, refreshModels, resumeCall, saveDelegation, updateAgent,
-  resetDelegation, createRole, updateRole, deleteRole,
+  resetDelegation, createRole, updateRole, deleteRole, fetchProjectRoles, setProjectRoleUsage,
 } from './js/api.js';
 import { el, mount } from './js/dom.js';
 import { computeSinceIso, formatDuration } from './js/format.js';
@@ -65,6 +65,7 @@ const state = {
 
   // Rôles perso : formulaire d'ajout ouvert ou non, erreurs du serveur
   roleForm: null,
+  projectRoles: null,
   roleErrors: [],
   roleBusy: false,
 
@@ -171,8 +172,25 @@ function setProject(project) {
   applyProjectFilter();
   updateFeatureOptions();
   connectSse();
+  state.projectRoles = null;
   render();
   void refreshAll({ includeSlow: false });
+  void loadProjectRoles();
+}
+
+// Rôles importés des sous-agents du projet choisi en haut (aucun sous « Tous les projets »).
+async function loadProjectRoles() {
+  const revision = projectRevision;
+  try {
+    const value = await fetchProjectRoles(state.project);
+    if (revision !== projectRevision) return;
+    state.projectRoles = value;
+    delete state.apiErrors.projectRoles;
+  } catch (error) {
+    if (revision !== projectRevision) return;
+    state.apiErrors.projectRoles = error?.message ?? 'Erreur projectRoles';
+  }
+  render();
 }
 
 function updateProjectOptions() {
@@ -274,6 +292,7 @@ async function refreshAll({ includeSlow = true, includeUsage = true } = {}) {
     tasks.push(['projects', fetchProjects()]);
     tasks.push(['features', fetchFeatures()]);
     tasks.push(['delegation', fetchDelegation()]);
+    tasks.push(['projectRoles', fetchProjectRoles(state.project)]);
     tasks.push(['quota', fetchQuota()]);
     tasks.push(['agents', fetchAgents()]);
     tasks.push(['models', fetchModels()]);
@@ -291,7 +310,7 @@ async function refreshAll({ includeSlow = true, includeUsage = true } = {}) {
   };
 
   await Promise.allSettled(tasks.map(([key, promise]) => {
-    const outdatedProject = () => (key === 'status' || key === 'usage') && revision !== projectRevision;
+    const outdatedProject = () => ['status', 'usage', 'projectRoles'].includes(key) && revision !== projectRevision;
     return promise.then((value) => {
       if (outdatedProject()) return;
       delete state.apiErrors[key];
@@ -710,6 +729,17 @@ const actions = {
       notify(`Règle de ${id} enregistrée.`, 'ok');
     } catch (error) {
       notify(error.errors?.length ? error.errors.join(' · ') : (error.message ?? 'Enregistrement impossible'), 'danger');
+    }
+    render();
+  },
+
+  async setProjectRoleUsage(id, usage) {
+    try {
+      const { ok: _ok, id: _id, ...payload } = await setProjectRoleUsage(state.project, id, { usage: usage || null });
+      state.projectRoles = payload;
+      notify(`Règle de ${id} enregistrée dans .nay/roles.json du projet.`, 'ok');
+    } catch (error) {
+      notify(error.errors?.length ? `${error.message} · ${error.errors.join(' · ')}` : (error.message ?? 'Enregistrement impossible'), 'danger');
     }
     render();
   },

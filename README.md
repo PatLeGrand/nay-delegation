@@ -79,10 +79,11 @@ facultatives pour l'agent, un accès (lecture seule ou écriture), un ordre de m
 | `toujours` | en lecture seule : lancé automatiquement par `nay story` après la relecture (et par `nay role` hors story) ; en écriture : lancé à chaque travail concerné, sans demander |
 | `sur-demande` | le lance seulement quand l'utilisateur le demande |
 | `proposer` | le propose en une ligne après le travail concerné |
-| aucune | pose la question avec ces trois réponses, puis enregistre le choix |
+| `selon-diff` | rôles de projet seulement : comme `toujours`, si le diff touche un de ses chemins |
+| aucune | pose la question avec ces réponses, puis enregistre le choix |
 
 ```bash
-node bin/nay.js guide                                   # consignes de l'orchestrateur
+node bin/nay.js guide [--cwd /projet]                   # consignes de l'orchestrateur
 node bin/nay.js usage adversaire toujours               # enregistrer la règle (ou « demander »)
 node bin/nay.js role adversaire brief.md --cwd /projet --diff HEAD
 ```
@@ -92,6 +93,33 @@ les consignes du rôle, et lance l'agent dans l'accès du rôle. `--diff <révis
 (utile en lecture seule, où l'agent ne peut pas lancer git). En lecture seule, un modèle en échec
 cède la place au suivant ; en écriture, on s'arrête. `--commit` comme pour `nay run`.
 Les rôles intégrés (`explorateur`, `developpeur`, `relecteur`…) gardent leur comportement.
+
+### Rôles de projet (sous-agents `.claude/agents`)
+
+Les sous-agents Claude Code du projet visé (`--cwd`, ou le dossier courant) deviennent des rôles
+perso visibles seulement dans ce projet. Nay ne les copie pas : il relit `.claude/agents/*.md` du
+checkout visé (worktrees compris) à chaque appel. Le frontmatter donne l'id (`name`), la description
+et l'accès : lecture seule si l'agent n'a ni `Edit` ni `Write` (`tools` sans eux, ou
+`disallowedTools` qui les retire), sinon écriture. Le corps du fichier devient la consigne. `model:`
+reste une indication pour Claude Code : Nay choisit le modèle selon ses quotas.
+
+À id égal, le rôle de projet l'emporte sur le rôle global, qui est masqué dans ce projet.
+Les réglages propres à Nay vont dans `.nay/roles.json` du checkout principal, commun aux worktrees :
+
+```json
+{
+  "security-reviewer": { "usage": "toujours" },
+  "db-reviewer": { "usage": "selon-diff", "paths": ["scripts-sql/**", "app/**/Models/**", "Docs/DB.md"] },
+  "ui-ux-reviewer": { "usage": "selon-diff", "paths": ["**/*.vue"], "agents": ["sonnet", "terra"] },
+  "test-runner": { "usage": "sur-demande" }
+}
+```
+
+La règle `selon-diff`, réservée aux rôles de projet, se comporte comme `toujours` dans `nay story`,
+mais seulement si le diff de la story touche l'un des motifs (`**` traverse les dossiers, `*` reste
+dans un segment). Sans `agents`, un rôle de projet prend la chaîne de `relecteur.parDefaut`.
+`nay usage <rôle> <règle> [motifs…] --cwd <projet>` écrit dans ce fichier. Un fichier invalide est
+ignoré et signalé par `nay check-config --cwd <projet>` et `nay guide`. Fiche : `docs/features/roles-projet.md`.
 
 ## Tests
 
@@ -183,7 +211,8 @@ Une seule commande pour toute la boucle, utilisable dans n'importe quel dossier 
    modèle disponible : étape sautée et notée, sans bloquer. `--no-conformity` la retire.
 5. **Qualité du code** (second temps) : choisit un `relecteur` qui n'est pas l'auteur, en lecture
    seule ; il finit par `NAY-VERDICT: PASS` ou `CHANGES`. Un relecteur en échec cède la place au suivant.
-6. Après un `PASS`, lance chaque rôle perso lecture seule réglé sur `toujours` (hors auteur du code ;
+6. Après un `PASS`, lance chaque rôle perso lecture seule réglé sur `toujours`, ou sur `selon-diff`
+   si le diff de la story touche ses chemins (sinon noté « non concerné ») (hors auteur du code ;
    un rôle sans modèle disponible est sauté sans bloquer ; les rôles en écriture ne sont jamais
    lancés par la story ; `--no-roles` désactive cette étape).
 7. Si `CHANGES` (conformité, relecteur ou rôle perso) : reprend la session du dev avec les constats,

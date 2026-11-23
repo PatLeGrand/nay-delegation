@@ -2,7 +2,7 @@ import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { validateDelegation } from '../delegation.js';
 import { mergeLayers, personalDiff, readLayer, writeLayer } from '../userConfig.js';
-import { BUILTIN_ROLES, USAGES, validateRoles } from '../roles.js';
+import { BUILTIN_ROLES, usagesFor, validateRoles } from '../roles.js';
 import { safePath, httpError } from './paths.js';
 
 export async function readJson(root, path) {
@@ -48,7 +48,7 @@ export async function readDelegation(root, userDir) {
     .map((name) => readLayered(root, userDir, name)));
   return { delegation: delegation.merged, agents: Object.keys(agents.merged),
     personal: Object.keys(delegation.personal), configDir: userDir,
-    roles: roles.merged, builtinRoles: BUILTIN_ROLES, usages: USAGES };
+    roles: roles.merged, builtinRoles: BUILTIN_ROLES, usages: usagesFor(null) };
 }
 
 export async function writeDelegation(root, userDir, delegation) {

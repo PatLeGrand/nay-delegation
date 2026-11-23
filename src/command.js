@@ -17,7 +17,7 @@ import { createJournal } from './eventLog.js';
 import { waitCommand } from './wait.js';
 import { diagnoseCommand } from './diagnose.js';
 import { guideCommand, roleCommand, usageCommand } from './roleCommands.js';
-import { loadRoles } from './roles.js';
+import { loadRolesReport } from './roles.js';
 import { readLayer, userConfigDir } from './userConfig.js';
 import { startServer } from './server/app.js';
 import { readQuotas, isAgentAvailable, quotaAgentConfig } from './quota/index.js';
@@ -35,10 +35,10 @@ const USAGE = `Usage :
       [--until done,failed,needs_input] [--all] [--timeout <min>]
   nay diagnose <storyId|callId> [--explain]   (chronologie et cause d'un échec ; --explain : avis d'un explorateur)
   nay role <rôle> <brief.md|-> [--cwd <dossier>] [--feature <nom>] [--diff <révision>] [--commit]
-  nay guide   (consignes de l'orchestrateur : rôles perso, règles, questions à poser)
-  nay usage <rôle> toujours|sur-demande|proposer|demander
+  nay guide [--cwd <projet>]   (consignes de l'orchestrateur : rôles perso et du projet, règles, questions à poser)
+  nay usage <rôle> toujours|sur-demande|proposer|selon-diff <motif>…|demander [--cwd <projet>]
   nay choose <rôle> [--author <agent>] [--unavailable a,b]   (sans --unavailable : quotas réels)
-  nay check-config
+  nay check-config [--cwd <projet>]
   nay quota
   nay models [--refresh]   (modèles proposés par chaque CLI ; sans --refresh : dernier catalogue connu)
   nay ui
@@ -195,12 +195,20 @@ export function formatCatalog(data, agents) {
   return `${lines.join('\n')}\n`;
 }
 
+// Les rôles de projet invalides sont signalés sans faire échouer la commande : Nay les ignore.
 function checkConfigCommand(args, output, engineLoader = loadEngineConfig) {
-  if (args.length) throw new Error(USAGE);
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { cwd: { type: 'string' } } });
+  if (positionals.length) throw new Error(USAGE);
   const errors = validateDelegation(readConfig('delegation'), Object.keys(readConfig('agents')));
   if (errors.length) throw new Error(errors.join('\n'));
-  loadRoles();
+  const report = loadRolesReport({ cwd: resolve(values.cwd ?? process.cwd()) });
   output.write('Configuration de délégation valide\n');
+  const fromProject = Object.keys(report.roles).filter((id) => report.roles[id].source === 'projet');
+  if (report.project && (fromProject.length || report.errors.length)) {
+    output.write(`Rôles du projet ${report.project.name} : ${fromProject.join(', ') || 'aucun'}\n`);
+    for (const id of report.masked) output.write(`${id} (global) masqué par le rôle de projet\n`);
+    for (const error of report.errors) output.write(`Attention : ${error}\n`);
+  }
   const dir = userConfigDir();
   const personal = ['agents', 'delegation', 'roles']
     .map((name) => [name, Object.keys(readLayer(dir, name))]).filter(([, keys]) => keys.length);
