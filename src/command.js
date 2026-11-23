@@ -12,7 +12,7 @@ import { formatStory, runStory } from './story.js';
 import { formatTask, parsePlan, planWorkspace, runPlan } from './plan.js';
 import { runAgent } from './runAgent.js';
 import { candidatesFor, chooseAgent, validateDelegation } from './delegation.js';
-import { loadEventConfig, readConfig, repositoryRoot } from './config.js';
+import { loadEngineConfig, loadEventConfig, readConfig, repositoryRoot } from './config.js';
 import { createJournal } from './eventLog.js';
 import { waitCommand } from './wait.js';
 import { diagnoseCommand } from './diagnose.js';
@@ -195,7 +195,7 @@ export function formatCatalog(data, agents) {
   return `${lines.join('\n')}\n`;
 }
 
-function checkConfigCommand(args, output) {
+function checkConfigCommand(args, output, engineLoader = loadEngineConfig) {
   if (args.length) throw new Error(USAGE);
   const errors = validateDelegation(readConfig('delegation'), Object.keys(readConfig('agents')));
   if (errors.length) throw new Error(errors.join('\n'));
@@ -207,6 +207,9 @@ function checkConfigCommand(args, output) {
   output.write(personal.length
     ? `Config perso (${dir}) : ${personal.map(([name, keys]) => `${name} → ${keys.join(', ')}`).join(' ; ')}\n`
     : 'Config perso : aucune (valeurs du dépôt)\n');
+  for (const { cli, configured, fallback } of engineLoader().fallbacks ?? []) {
+    output.write(`${cli} : ${configured} introuvable, « ${fallback} » pris dans le PATH\n`);
+  }
   return 0;
 }
 
@@ -220,7 +223,8 @@ async function readStdin(stream) {
 export async function runCommand(args, { input = process.stdin, output = process.stdout,
   errorOutput = process.stderr, execute = runAgent, resumer = resumeCall, quotasReader = readQuotas, now = Date.now,
   committer = commitAndRecord, storyRunner = runStory, updater = runUpdate,
-  catalog = createCatalog({ root: repositoryRoot() }), waitOptions = {}, diagnoseOptions = {} } = {}) {
+  catalog = createCatalog({ root: repositoryRoot() }), waitOptions = {}, diagnoseOptions = {},
+  engineLoader = loadEngineConfig } = {}) {
   try {
     if (args[0] === 'update') {
       if (args.length !== 1) throw new Error(USAGE);
@@ -242,7 +246,7 @@ export async function runCommand(args, { input = process.stdin, output = process
     if (args[0] === 'plan') return await planCommand(args.slice(1), { output, execute, quotasReader, storyRunner });
     if (args[0] === 'story') return await storyCommand(args.slice(1), { input, output, execute, quotasReader, storyRunner });
     if (args[0] === 'choose') return await chooseCommand(args.slice(1), output, quotasReader);
-    if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output);
+    if (args[0] === 'check-config') return checkConfigCommand(args.slice(1), output, engineLoader);
     if (args[0] === 'guide') return guideCommand(args.slice(1), output);
     if (args[0] === 'usage') return usageCommand(args.slice(1), output);
     if (args[0] === 'role') {

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LAYERED, mergeLayers, readLayer, userConfigDir } from './userConfig.js';
@@ -37,11 +37,20 @@ export function loadEventConfig() {
   return config;
 }
 
-export function loadEngineConfig(env = process.env) {
+export function loadEngineConfig(env = process.env, { exists = existsSync } = {}) {
   const config = readConfig('engine');
-  for (const cli of ['codex', 'agy', 'claude']) {
-    config[`${cli}Bin`] = env[`${cli.toUpperCase()}_BIN`] || config[`${cli}Bin`];
+  const fallbacks = [];
+  for (const [cli, fallback] of Object.entries(config.binFallbacks ?? {})) {
+    const fromEnv = env[`${cli.toUpperCase()}_BIN`];
+    const configured = config[`${cli}Bin`];
+    if (fromEnv) {
+      config[`${cli}Bin`] = fromEnv;
+    } else if (typeof configured === 'string' && isAbsolute(configured) && !exists(configured)) {
+      config[`${cli}Bin`] = fallback;
+      fallbacks.push({ cli, configured, fallback });
+    }
   }
+  config.fallbacks = fallbacks;
   return config;
 }
 

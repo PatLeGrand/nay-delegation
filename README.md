@@ -115,7 +115,9 @@ du journal rejette la promesse pour éviter une consommation silencieusement per
 
 Les modèles, efforts et délais sont dans `config/agents.json`. Les chemins des
 binaires et du journal sont dans `config/engine.json`. `CODEX_BIN`, `AGY_BIN` et
-`CLAUDE_BIN` permettent de remplacer les binaires sans modifier la config.
+`CLAUDE_BIN` permettent de remplacer les binaires sans modifier la config. Si un
+chemin absolu configuré n'existe pas sur la machine, Nay se replie sur le nom de
+repli (`binFallbacks`) cherché dans le `PATH`, et `nay check-config` le signale.
 
 Le journal `.nay/state/usage.jsonl` est relatif à la racine du dépôt Nay,
 y compris depuis un worktree ; `--cwd` ne déplace pas les journaux. Chaque ligne contient les métadonnées de
