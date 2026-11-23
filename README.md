@@ -4,6 +4,8 @@ Moteur d'orchestration multi-agents, en Node.js, pour le développement logiciel
 
 **Installation** : suivre [docs/installation.md](docs/installation.md), écrit pour être
 exécuté pas à pas par un agent IA comme par un humain.
+Linux et macOS. La skill de l'orchestrateur est dans [skills/nay/SKILL.md](skills/nay/SKILL.md) (Claude Code,
+Codex, Antigravity), à installer par un lien (section 6 du guide).
 
 L'orchestrateur (Claude Opus) coordonne ; le moteur exécute le travail mécanique :
 appel des agents par leur CLI, choix du relecteur, fiches de fonctionnalité,
