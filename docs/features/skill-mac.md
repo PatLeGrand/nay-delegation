@@ -24,8 +24,8 @@ Explorateur non lancé. Constats de l'orchestrateur : les skills Codex (`~/.code
 - `nay update` simulé sans `systemctl` : code 0, « Service nay-ui non actif : rien à redémarrer. »
 - `node --test "test/*.test.js"` : 308 réussis, 0 échec.
 - Non testé sur un vrai Mac.
-- Ma décision : en attente.
+- Ma décision : fusion demandée par l'utilisateur le 22/11.
 
 ## Décision finale
 
-- En attente.
+- Fusionné dans `main` (PR #20), le 22/11.
